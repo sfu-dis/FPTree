@@ -67,9 +67,9 @@ class LeafNode : public BaseNode
 
 public:
     LeafNode();
-    LeafNode(uint64_t nKey, std::array<uint64_t, MAX_INNER_SIZE> keys, 
-    	std::bitset<MAX_LEAF_SIZE> bitmap, LeafNode* p_next, 
+    LeafNode(std::bitset<MAX_LEAF_SIZE> bitmap, LeafNode* p_next, 
         std::array<size_t, MAX_LEAF_SIZE> fingerprints, std::array<KV, MAX_LEAF_SIZE> kv_pairs);
+    // LeafNode(const LeafNode* leaf);
 
     int64_t findFirstZero();
     bool isFull() { return this->findFirstZero() == MAX_LEAF_SIZE; }
@@ -89,7 +89,7 @@ public:
 
     void displayTree(BaseNode* root);
 
-    void printBT(std::string prefix, BaseNode* root);
+    void printFPTree(std::string prefix, BaseNode* root);
 
     LeafNode* findLeaf(uint64_t key);
 

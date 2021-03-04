@@ -22,6 +22,17 @@ LeafNode::LeafNode()
     this->p_next = NULL;
 }
 
+LeafNode::LeafNode(std::bitset<MAX_LEAF_SIZE> bitmap, LeafNode* p_next, 
+        std::array<size_t, MAX_LEAF_SIZE> fingerprints, std::array<KV, MAX_LEAF_SIZE> kv_pairs)
+: bitmap(bitmap), p_next(p_next), fingerprints(fingerprints), kv_pairs(kv_pairs)
+{
+    this->isInnerNode = false;
+}
+
+// LeafNode::LeafNode(const LeafNode* leaf)
+// {
+
+// }
 
 int64_t LeafNode::findFirstZero()
 {
@@ -66,15 +77,15 @@ void FPtree::displayTree(BaseNode* root)
     }
 }
 
-void FPtree::printBT(std::string prefix, BaseNode* root)
+void FPtree::printFPTree(std::string prefix, BaseNode* root)
 {
 	if (root->isInnerNode) {
 		InnerNode* node = reinterpret_cast<InnerNode*> (root);
-		printBT("   " + prefix, node->p_children[0]);
+		printFPTree("    " + prefix, node->p_children[0]);
         for (size_t i = 0; i < node->nKey; i++)
         {
         	cout << prefix << node->keys[i] << endl;
-            printBT("   " + prefix, node->p_children[i+1]);
+            printFPTree("    " + prefix, node->p_children[i+1]);
 
         }
         cout << "\n" << endl; 
@@ -94,12 +105,9 @@ void FPtree::printBT(std::string prefix, BaseNode* root)
 
 size_t getOneByteHash(uint64_t key)
 {
-    uint64_t* pHashKey = new uint64_t(key);
     size_t len = sizeof(uint64_t);
-    size_t hashKey = _Hash_bytes(pHashKey, len, 1);
-
+    size_t hashKey = _Hash_bytes(&key, len, 1);
     hashKey = (hashKey >> (8 * 0)) & 0xff;
-
     return hashKey;
 }
 
@@ -130,24 +138,28 @@ std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
     }
     else 
     {
-        // cout << "In" << endl;
         InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
         while (cursor->isInnerNode == true) 
         {
             parentNode = cursor;
-            for (uint64_t i = 0; i < cursor->nKey; i++)
+
+            int mid, l = 0, r = cursor->nKey - 1;
+            while(l <= r)
             {
-                if (key < cursor->keys[i])
+                mid = l + (r - l)/2;
+                if(cursor->keys[mid] == key)
                 {
-                    cursor = reinterpret_cast<InnerNode*> (cursor->p_children[i]);
+                    mid ++;
                     break;
                 }
-                else if (i == cursor->nKey - 1)
-                {
-                    cursor = reinterpret_cast<InnerNode*> (cursor->p_children[i+1]);
-                    break;
-                }
+                else if(cursor->keys[mid] > key)
+                    r = mid-1;
+                else 
+                    l = mid+1;
             }
+            if (key >= cursor->keys[mid])
+                mid ++;
+            cursor = reinterpret_cast<InnerNode*> (cursor->p_children[mid]);
         }
         return std::make_pair(parentNode, reinterpret_cast<LeafNode*> (cursor));
     }
@@ -212,7 +224,6 @@ bool FPtree::insert(struct KV kv)
         reinterpret_cast<LeafNode*> (root)->p_next = nullptr;
         return true;
     }
-
 
     std::pair<InnerNode*, LeafNode*> p = findLeafWithParent(kv.key);
     InnerNode* parentNode = p.first;
@@ -283,28 +294,21 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf)
 {
     if (parent->nKey < MAX_INNER_SIZE)
     {
-    	parent->keys[parent->nKey++] = splitKey;
-    	uint64_t nkey = parent->nKey;
-    	std::sort(parent->keys.begin(), parent->keys.begin() + nkey);
-
-    	size_t i = std::distance(parent->keys.begin(), std::find(parent->keys.begin(), 
-    		parent->keys.begin() + nkey, splitKey)) + 1;
-
-    	for (size_t j = nkey; j > i ; j--)
-    		parent->p_children[j] = parent->p_children[j-1];
-    	parent->p_children[i] = leaf;
-        // size_t i = 0;
-        // while (splitKey > parent->keys[i] && i < parent->nKey)
-        //     i++;
-        
-        // for (size_t j = parent->nKey; j > i; j--)
-        //     parent->keys[j] = parent->keys[j-1];
-        // for (size_t j = parent->nKey+1; j > i+1; j--)
-        //     parent->p_children[j] = parent->p_children[j-1];
-
-        // parent->nKey++;
-        // parent->keys[i] = splitKey;
-        // parent->p_children[i+1] = leaf;
+        for (size_t i = parent->nKey-1; i >= 0; i--)
+        {
+            if (parent->keys[i] > splitKey)
+            {
+                parent->keys[i+1] = parent->keys[i];
+                parent->p_children[i+2] = parent->p_children[i+1];
+            }
+            else
+            {
+                parent->keys[i+1] = splitKey;
+                parent->p_children[i+2] = leaf;
+                break;
+            }
+        }
+        parent->nKey++;
     }
     else 
     {
@@ -449,8 +453,8 @@ int main()
 
     size_t insertLength = 25;
     size_t randList[insertLength];
-    // srand(time(NULL));
-    srand(1);
+    srand(time(NULL));
+    // srand(1);
     for (size_t i = 0; i < insertLength; i++)
         randList[i] = i+1;
     
@@ -481,10 +485,9 @@ int main()
     // fptree.insert(KV(2, 6));
     // fptree.insert(KV(1, 6));
 
-
     fptree.displayTree(fptree.getRoot());
 
-    fptree.printBT("├──", fptree.getRoot());
+    fptree.printFPTree("├──", fptree.getRoot());
 
     // cout << "find: " << fptree.find(9) << endl;
     // cout << "find: " << fptree.find(2) << endl;
