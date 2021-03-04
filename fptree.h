@@ -1,7 +1,17 @@
+#include <stdio.h>    
+#include <stdlib.h> 
 #include <iostream>
 #include <string>
 #include <cstdint>
 #include <stdint.h>
+#include <sys/types.h>
+#include <bits/hash_bytes.h>
+#include <bitset>
+#include <cmath>
+#include <algorithm>  
+#include <array>
+#include <utility>
+#include <time.h>   
 
 using namespace std;
 
@@ -27,8 +37,8 @@ public:
 class InnerNode : public BaseNode
 {
     uint64_t nKey;
-    uint64_t keys[MAX_INNER_SIZE];
-    BaseNode* p_children[MAX_INNER_SIZE + 1];
+    std::array<uint64_t, MAX_INNER_SIZE> keys;
+    std::array<BaseNode*, MAX_INNER_SIZE + 1> p_children;
 
     friend class FPtree;
 
@@ -48,17 +58,18 @@ struct KV {
 
 class LeafNode : public BaseNode
 {
-    bool bitmap[MAX_LEAF_SIZE];
+    std::bitset<MAX_LEAF_SIZE> bitmap;
     LeafNode* p_next;
-    size_t fingerprints[MAX_LEAF_SIZE];
-    KV kv_pairs[MAX_LEAF_SIZE];
+    std::array<size_t, MAX_LEAF_SIZE> fingerprints;
+    std::array<KV, MAX_LEAF_SIZE> kv_pairs;
     
     friend class FPtree;
 
 public:
     LeafNode();
-    LeafNode(uint64_t nKey, uint64_t *keys, bool* bitmap, LeafNode* p_next, 
-             size_t* fingerprints, KV* kv_pairs);
+    LeafNode(uint64_t nKey, std::array<uint64_t, MAX_INNER_SIZE> keys, 
+    	std::bitset<MAX_LEAF_SIZE> bitmap, LeafNode* p_next, 
+        std::array<size_t, MAX_LEAF_SIZE> fingerprints, std::array<KV, MAX_LEAF_SIZE> kv_pairs);
 
     int64_t findFirstZero();
     bool isFull() { return this->findFirstZero() == MAX_LEAF_SIZE; }
@@ -78,14 +89,24 @@ public:
 
     void displayTree(BaseNode* root);
 
-    BaseNode* findLeaf(uint64_t key);
-    BaseNode* findParent(uint64_t key);
+    void printBT(std::string prefix, BaseNode* root);
+
+    LeafNode* findLeaf(uint64_t key);
+
+    InnerNode* findParent(uint64_t key);
+
+    std::pair<InnerNode*, LeafNode*> findLeafWithParent(uint64_t key);
+
     InnerNode* findParentNode(BaseNode* root, BaseNode* child);
+
     uint64_t find(uint64_t key);
 
     uint64_t findSplitKey(LeafNode* leaf);
-    void insert(struct KV kv);
+
+    bool insert(struct KV kv);
+
     uint64_t splitLeaf(LeafNode* leaf);
+
     void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
 
 };
