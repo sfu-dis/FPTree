@@ -91,15 +91,16 @@ public:
 
     void printFPTree(std::string prefix, BaseNode* root);
 
+    // find leaf that could contain the key, the returned leaf may not contain the key
     LeafNode* findLeaf(uint64_t key);
-
-    InnerNode* findParent(uint64_t key);
 
     std::pair<InnerNode*, LeafNode*> findLeafWithParent(uint64_t key);
 
-    InnerNode* findParentNode(BaseNode* root, BaseNode* child);
+    InnerNode* findInnerNodeParent(InnerNode* child);
 
     uint64_t find(uint64_t key);
+
+    bool updateValue(struct KV kv);
 
     uint64_t findSplitKey(LeafNode* leaf);
 

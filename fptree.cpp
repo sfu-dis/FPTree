@@ -97,7 +97,7 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
         {
         	if (node->bitmap.test(i) == 1)
         	{
-        		cout << prefix << node->kv_pairs[i].key << endl;
+        		cout << prefix << node->kv_pairs[i].key << "," << node->kv_pairs[i].value << endl;
         	}
         }
 	}
@@ -115,12 +115,6 @@ size_t getOneByteHash(uint64_t key)
 LeafNode* FPtree::findLeaf(uint64_t key) 
 {
     return findLeafWithParent(key).second;
-}
-
-
-InnerNode* FPtree::findParent(uint64_t key)
-{
-    return findLeafWithParent(key).first;
 }
 
 std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
@@ -166,27 +160,40 @@ std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
 }
 
 
-InnerNode* FPtree::findParentNode(BaseNode* root, BaseNode* child)
+InnerNode* FPtree::findInnerNodeParent(InnerNode* child)
 {
-    BaseNode* parent;
-    if (reinterpret_cast<InnerNode*> (root)->isInnerNode == false) 
-        return NULL;
+    if (root == NULL || root->isInnerNode == false)
+        return nullptr;
 
-    for (size_t i = 0; i < reinterpret_cast<InnerNode*> (root)->nKey+1; i++)
+    InnerNode* parent;
+    InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
+    uint64_t first_key = child->keys[0];
+
+    while (cursor->isInnerNode == true) 
     {
-        if (reinterpret_cast<InnerNode*> (root)->p_children[i] == child)
-        {
-            return reinterpret_cast<InnerNode*> (root);
-        }
-        else
-        {
-            parent = findParentNode(reinterpret_cast<InnerNode*> (root)->p_children[i], child);
-            if (parent != NULL)
-                return reinterpret_cast<InnerNode*> (parent);
-        }
-    }
+        parent = cursor;
 
-    return reinterpret_cast<InnerNode*> (parent);
+        int mid, l = 0, r = cursor->nKey - 1;
+        while(l <= r)
+        {
+            mid = l + (r - l)/2;
+            if(cursor->keys[mid] == first_key)
+            {
+                mid ++;
+                break;
+            }
+            else if(cursor->keys[mid] > first_key)
+                r = mid-1;
+            else 
+                l = mid+1;
+        }
+        if (first_key >= cursor->keys[mid])
+            mid ++;
+        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[mid]);
+        if (cursor->keys[0] == first_key)
+            return parent;
+    }
+    return nullptr;
 }   
 
 
@@ -208,8 +215,26 @@ uint64_t FPtree::find(uint64_t key)
     return 0;
 }
 
+bool FPtree::updateValue(struct KV kv)
+{
+    LeafNode* leaf = FPtree::findLeaf(kv.key);
+    if (leaf == nullptr)
+        return false;
 
-
+    size_t key_hash = getOneByteHash(kv.key);
+    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
+    {
+        KV currKV = leaf->kv_pairs[i];
+        if (leaf->bitmap.test(i) == 1 &&
+            leaf->fingerprints[i] == key_hash &&
+            currKV.key == kv.key)
+        {
+            leaf->kv_pairs[i].value = kv.value;
+            return true;
+        }
+    }
+    return false;
+}
 
 bool FPtree::insert(struct KV kv) 
 {
@@ -253,7 +278,7 @@ bool FPtree::insert(struct KV kv)
     {
         splitKey = splitLeaf(reachedLeafNode);
 
-        if (kv.key > splitKey)
+        if (kv.key >= splitKey)
             insertNode = reachedLeafNode->p_next;
     }
     
@@ -262,27 +287,17 @@ bool FPtree::insert(struct KV kv)
     insertNode->fingerprints[slot] = getOneByteHash(kv.key);
     insertNode->bitmap.set(slot);
 
-    if (decision == true && root->isInnerNode == false)
-    {
-        root = new InnerNode();
-        root->isInnerNode = true;
-        reinterpret_cast<InnerNode*> (root)->nKey = 1;
-        reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
-        reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
-        reinterpret_cast<InnerNode*> (root)->p_children[1] = reachedLeafNode->p_next;
-        return true;
-    }
-
-
     if (decision == true)
     {
-        // cout << "updateParents" << endl;
-        // for (int i = 0; i < MAX_LEAF_SIZE; i++)
-        // {
-        //     cout << "keys: ";
-        //     cout << reachedLeafNode->p_next->kv_pairs[i].key << endl;
-        // }
-    
+        if (root->isInnerNode == false)
+        {
+            root = new InnerNode();
+            reinterpret_cast<InnerNode*> (root)->nKey = 1;
+            reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
+            reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
+            reinterpret_cast<InnerNode*> (root)->p_children[1] = reachedLeafNode->p_next;
+            return true;
+        }
         updateParents(splitKey, parentNode, reachedLeafNode->p_next);
     }
 
@@ -290,7 +305,7 @@ bool FPtree::insert(struct KV kv)
 }
 
 
-void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf)
+void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child)
 {
     if (parent->nKey < MAX_INNER_SIZE)
     {
@@ -304,7 +319,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf)
             else
             {
                 parent->keys[i+1] = splitKey;
-                parent->p_children[i+2] = leaf;
+                parent->p_children[i+2] = child;
                 break;
             }
         }
@@ -313,93 +328,56 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf)
     else 
     {
         InnerNode* newInnerNode = new InnerNode();
-        uint64_t tempKeys[MAX_INNER_SIZE+1];
-        BaseNode* tempChildren[MAX_INNER_SIZE+2];
-        for (size_t i = 0; i < MAX_INNER_SIZE; i++)
-            tempKeys[i] = parent->keys[i];
-        for (size_t i = 0; i < MAX_INNER_SIZE+1; i++)
-            tempChildren[i] = parent->p_children[i];
-
-        for (size_t i = 0; i < parent->nKey; i++)
+        uint64_t mid = floor((MAX_INNER_SIZE + 1) / 2);
+        std::array<uint64_t, MAX_INNER_SIZE + 1> temp_keys;
+        std::array<BaseNode*, MAX_INNER_SIZE + 2> temp_children;
+        size_t key_idx = 0;
+        bool added_splitKey = false;
+        for (size_t i = 0; i < MAX_INNER_SIZE; i++){
+            if (!added_splitKey && splitKey < parent->keys[i])
+            {
+                temp_keys[key_idx] = splitKey;
+                temp_children[++key_idx] = child;
+                added_splitKey = true;
+            }
+            temp_keys[key_idx] = parent->keys[i];
+            temp_children[++key_idx] = parent->p_children[i+1];
+        }
+        if (!added_splitKey)
         {
-            parent->keys[i] = tempKeys[i];
-            cout << "parent key: " << parent->keys[i] << endl;
+            temp_keys[key_idx] = splitKey;
+            temp_children[++key_idx] = child;
         }
 
-
-        for (size_t i = 0; i < parent->nKey+1; i++)
+        for (size_t i = 0; i < mid; i++)
         {
-            parent->p_children[i] = tempChildren[i];
-            cout << "parent child: " << reinterpret_cast<LeafNode*> (parent->p_children[i])->kv_pairs[0].key << endl;
+            parent->keys[i] = temp_keys[i];
+            parent->p_children[i+1] = temp_children[i+1];
         }
-        
-        size_t i = 0, j;
-        while (splitKey > tempKeys[i] && i < MAX_INNER_SIZE) 
-            i++;
-        for (size_t j = MAX_INNER_SIZE; j > i; j--)
-            tempKeys[j] = tempKeys[j-1];
-        for (size_t j = MAX_INNER_SIZE+1; j > i+1; j--)
-            tempChildren[j] = tempChildren[j-1];
-        tempKeys[i] = splitKey;
-        tempChildren[i+1] = leaf;
+        parent->nKey = mid;
+        splitKey = temp_keys[mid];
 
-
-
-        for (size_t i = 0; i < MAX_INNER_SIZE+1; i++)
-            cout << "tempKeys key: " << tempKeys[i] << endl;
-
-
-        for (size_t i = 0; i < MAX_INNER_SIZE+2; i++)
-            cout << "tempChildren child: " << reinterpret_cast<LeafNode*> (tempChildren[i])->kv_pairs[0].key << endl;
-        
-
-    
-        parent->nKey = MAX_INNER_SIZE % 2 == 0 ? floor(MAX_INNER_SIZE / 2) : floor(MAX_INNER_SIZE / 2) + 1;
-        newInnerNode->nKey = MAX_INNER_SIZE - parent->nKey;
-
-        cout << "parent->nKey: " << parent->nKey << endl;
-        cout << "newInnerNode->nKey: " << newInnerNode->nKey << endl;
-
-        for (size_t i = 0, j = parent->nKey+1; i < newInnerNode->nKey; i++, j++)
-            newInnerNode->keys[i] = tempKeys[j];
-        for (size_t i = 0, j = parent->nKey+1; i < newInnerNode->nKey+1; i++, j++)
-            newInnerNode->p_children[i] = tempChildren[j];
-
-
-        for (size_t i = 0; i < parent->nKey; i++)
+        key_idx = 0;
+        newInnerNode->p_children[key_idx] = temp_children[mid+1];
+        for (size_t i = mid + 1; i <= MAX_INNER_SIZE; i++)
         {
-            parent->keys[i] = tempKeys[i];
-            cout << "parent key: " << parent->keys[i] << endl;
+            newInnerNode->keys[key_idx] = temp_keys[i];
+            newInnerNode->p_children[++key_idx] = temp_children[i+1];
         }
-
-        for (size_t i = 0; i < parent->nKey+1; i++)
-        {
-            parent->p_children[i] = tempChildren[i];
-            cout << "parent child: " << reinterpret_cast<LeafNode*> (parent->p_children[i])->kv_pairs[0].key << endl;
-        }
+        newInnerNode->nKey = key_idx;
         
         if (parent == root)
         {
-            // root = new InnerNode();
-            // reinterpret_cast<InnerNode*> (root)->nKey = 1;
-            // reinterpret_cast<InnerNode*> (root)->keys[0] = parent->keys[parent->nKey];
-            // reinterpret_cast<InnerNode*> (root)->p_children[0] = parent;
-            // reinterpret_cast<InnerNode*> (root)->p_children[1] = newInnerNode;
             InnerNode* newRoot = new InnerNode();
             newRoot->nKey = 1;
-            newRoot->keys[0] = tempKeys[parent->nKey];
+            newRoot->keys[0] = splitKey;
             newRoot->p_children[0] = parent;
             newRoot->p_children[1] = newInnerNode;
             root = newRoot;
+            return;
         }
-        else
-        {
-            updateParents(tempKeys[parent->nKey], findParentNode(root, parent), newInnerNode);
-        }
+        updateParents(splitKey, findInnerNodeParent(parent), newInnerNode);
     }
-
-
-    return;
 }
 
 
