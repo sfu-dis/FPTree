@@ -12,11 +12,10 @@
 #include <array>
 #include <tuple>
 #include <utility>
-#include <time.h>   
+#include <time.h>  
+#include <atomic>
 
 #include <cassert>
-
-using namespace std;
 
 #pragma once
 
@@ -78,7 +77,8 @@ class LeafNode : public BaseNode
     LeafNode* p_next;
     std::array<size_t, MAX_LEAF_SIZE> fingerprints;
     std::array<KV, MAX_LEAF_SIZE> kv_pairs;
-    
+    std::atomic<bool> lock;
+
     friend class FPtree;
 
 public:
@@ -88,7 +88,7 @@ public:
     // return position of first unset bit in bitmap, return bitmap size if all bits are set
     uint64_t findFirstZero();
 
-    bool isFull() { return this->findFirstZero() == MAX_LEAF_SIZE; }
+    bool isFull() { return this->bitmap.all(); }
 
     void addKV(struct KV kv);
 
@@ -108,6 +108,7 @@ public:
     KV minKV(bool remove);
     KV maxKV(bool remove);
 
+    void sortKV();
 };
 
 
@@ -137,6 +138,13 @@ public:
 
     // delete key from tree and return associated value 
     uint64_t deleteKey(uint64_t key);
+
+    // initialize scan by finding the first kv with kv.key >= key
+    void ScanInitialize(uint64_t key);
+
+    KV ScanNext();
+
+    bool ScanComplete();
 
 private:
     // find leaf that could potentially contain the key, the returned leaf is not garanteed to contain the key
@@ -170,4 +178,7 @@ private:
 
     uint64_t minKey(BaseNode* node);
 
+
+    LeafNode* current_leaf;
+    uint64_t bitmap_idx;
 };

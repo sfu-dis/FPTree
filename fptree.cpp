@@ -90,6 +90,7 @@ LeafNode::LeafNode()
     this->isInnerNode = false;
     this->bitmap.reset();
     this->p_next = nullptr;
+    this->lock = ATOMIC_VAR_INIT(false);
 }
 
 LeafNode::LeafNode(const LeafNode& leaf)
@@ -99,6 +100,7 @@ LeafNode::LeafNode(const LeafNode& leaf)
     this->fingerprints = leaf.fingerprints;
     this->kv_pairs = leaf.kv_pairs;
     this->p_next = leaf.p_next;
+    this->lock.store(leaf.lock, std::memory_order_relaxed);
 }
 
 
@@ -173,10 +175,35 @@ KV LeafNode::maxKV(bool remove = false)
     return this->kv_pairs[max_key_idx];
 }
 
+void LeafNode::sortKV()
+{
+    uint64_t slot_idx = findFirstZero();    // idx of first empty slot
+    for (uint64_t kv_idx = slot_idx + 1; kv_idx < MAX_LEAF_SIZE;)
+    {
+        if (this->bitmap.test(kv_idx))
+        {
+            this->fingerprints[slot_idx] = this->fingerprints[kv_idx];
+            this->kv_pairs[slot_idx] = this->kv_pairs[kv_idx];
+            this->bitmap.set(slot_idx);
+            this->bitmap.set(kv_idx, 0);
+            slot_idx = findFirstZero();
+            kv_idx = slot_idx + 1;
+        }
+        else
+            kv_idx++;
+    }
+    std::sort(this->kv_pairs.begin(), this->kv_pairs.begin() + slot_idx, 
+        [] (const KV& kv1, const KV& kv2){
+            return kv1.key < kv2.key;
+        });
+    for (uint64_t i = 0; i < slot_idx; i++)
+        this->fingerprints[i] = getOneByteHash(this->kv_pairs[i].key);
+}
 
 FPtree::FPtree() 
 {
     root = nullptr;
+    current_leaf = nullptr;
 }
 
 FPtree::~FPtree() 
@@ -258,7 +285,6 @@ std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
     std::tuple<InnerNode*, InnerNode*, uint64_t> nodes = findInnerAndLeafWithParent(key);
     InnerNode* parent = std::get<1>(nodes);
     return std::make_pair(parent, reinterpret_cast<LeafNode*> (parent->p_children[std::get<2>(nodes)]));
-    
 }
 
 std::tuple<InnerNode*, InnerNode*, uint64_t> FPtree::findInnerAndLeafWithParent(uint64_t key)
@@ -579,7 +605,7 @@ void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t rig
         if (left->nKey == 0)
         {
             right->addKey(0, parent->keys[left_child_idx], left->p_children[0], false);
-            delete left;
+            delete left; left == nullptr;
             parent->removeKey(left_child_idx, false);
             if (left_child_idx != 0)
                 parent->keys[left_child_idx-1] = minKey(parent->p_children[left_child_idx]);
@@ -588,7 +614,7 @@ void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t rig
         else
         {
             left->addKey(left->nKey, parent->keys[left_child_idx], right->p_children[0]);
-            delete right;
+            delete right; right == nullptr;
             parent->removeKey(left_child_idx);
             inner_child = left;
         }
@@ -598,7 +624,7 @@ void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t rig
         LeafNode* left = reinterpret_cast<LeafNode*> (parent->p_children[left_child_idx]);
         LeafNode* right = reinterpret_cast<LeafNode*> (parent->p_children[right_child_idx]);
         left->p_next = right->p_next;
-        delete right;
+        delete right; right == nullptr;
         if (left_child_idx != 0)
             parent->keys[left_child_idx-1] = left->minKV().key;
         parent->removeKey(left_child_idx);
@@ -608,7 +634,7 @@ void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t rig
     {
         if (parent == root) // entire tree stores 1 kv, convert the only leafnode into root
         {
-            delete root;
+            delete root; root == nullptr;
             root = inner_child;
             if (leaf_child != nullptr)
                 root = leaf_child;
@@ -682,6 +708,48 @@ uint64_t FPtree::minKey(BaseNode* node)
     return reinterpret_cast<LeafNode*> (node)->minKV().key;
 }
 
+void FPtree::ScanInitialize(uint64_t key)
+{
+    if (!root)
+        return;
+    this->current_leaf = root->isInnerNode? findLeaf(key) : reinterpret_cast<LeafNode*> (root);
+    while (this->current_leaf != nullptr)
+    {
+        this->current_leaf->sortKV();
+        uint64_t leaf_size = this->current_leaf->findFirstZero();
+        for (uint64_t i = 0; i < leaf_size; i++)
+        {
+            if (this->current_leaf->kv_pairs[i].key >= key)
+            {
+                this->bitmap_idx = i;
+                return;
+            }
+        }
+        this->current_leaf = this->current_leaf->p_next;
+    }
+}
+
+KV FPtree::ScanNext()
+{
+    assert(this->current_leaf != nullptr && "Current scan node was deleted!");
+    KV kv = this->current_leaf->kv_pairs[this->bitmap_idx ++];
+    if (this->bitmap_idx == MAX_LEAF_SIZE || this->current_leaf->bitmap.test(this->bitmap_idx) == 0)  // scan next leaf
+    {
+        this->current_leaf = this->current_leaf->p_next;
+        if (this->current_leaf != nullptr)
+        {
+            this->current_leaf->sortKV();
+            this->bitmap_idx = 0;
+        }
+    }
+    return kv;
+}
+
+bool FPtree::ScanComplete()
+{
+    return this->current_leaf == nullptr;
+}
+
 
 int main() 
 {
@@ -737,13 +805,25 @@ int main()
         cout << "\nEnter the key to insert or delete: "; 
         cin >> key;
         cout << endl;
-        if (fptree.find(key) != 0)
+        if (key == 0)
+            break;
+        else if (fptree.find(key) != 0)
             fptree.deleteKey(key);
         else
             fptree.insert(KV(key, key));
         fptree.printFPTree("├──", fptree.getRoot());
     }
 
+    cout << "\nEnter the key to initialize scan: "; 
+    cin >> key;
+    cout << endl;
+    fptree.ScanInitialize(key);
+    while(!fptree.ScanComplete())
+    {
+        KV kv = fptree.ScanNext();
+        cout << kv.key << "," << kv.value << " ";
+    }
+    cout << endl;
 }
 
 
