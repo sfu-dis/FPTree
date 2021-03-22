@@ -20,8 +20,10 @@
 #pragma once
 
 // static const uint64_t kMaxEntries = 256;
-#define MAX_INNER_SIZE 3
-#define MAX_LEAF_SIZE 4
+#define MAX_INNER_SIZE 1
+#define MAX_LEAF_SIZE 3
+
+#define PERSIST_MODE 0 // DRAM or persist version
 
 static size_t getOneByteHash(uint64_t key);
 
@@ -71,6 +73,7 @@ struct KV {
     KV(uint64_t key, uint64_t value) { this->key = key; this->value = value; }
 };
 
+
 class LeafNode : public BaseNode
 {
     std::bitset<MAX_LEAF_SIZE> bitmap;
@@ -108,6 +111,7 @@ public:
     KV minKV(bool remove);
     KV maxKV(bool remove);
 
+    // inplace sort, will first move all kv to the left side, then sort
     void sortKV();
 };
 
@@ -141,9 +145,7 @@ public:
 
     // initialize scan by finding the first kv with kv.key >= key
     void ScanInitialize(uint64_t key);
-
     KV ScanNext();
-
     bool ScanComplete();
 
 private:
