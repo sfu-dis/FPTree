@@ -20,10 +20,8 @@
 #pragma once
 
 // static const uint64_t kMaxEntries = 256;
-#define MAX_INNER_SIZE 1
-#define MAX_LEAF_SIZE 3
-
-#define PERSIST_MODE 0 // DRAM or persist version
+#define MAX_INNER_SIZE 2
+#define MAX_LEAF_SIZE 2
 
 static size_t getOneByteHash(uint64_t key);
 
@@ -51,6 +49,7 @@ class InnerNode : public BaseNode
 public:
     InnerNode();
     InnerNode(const InnerNode& inner);
+    ~InnerNode();
 
     // uint64_t: index of child that would lie along the path of searching key
     // bool: whether current node actually contains key in keys
@@ -87,6 +86,7 @@ class LeafNode : public BaseNode
 public:
     LeafNode();
     LeafNode(const LeafNode& leaf);
+    LeafNode& operator=(const LeafNode& leaf);
 
     // return position of first unset bit in bitmap, return bitmap size if all bits are set
     uint64_t findFirstZero();
@@ -111,8 +111,9 @@ public:
     KV minKV(bool remove);
     KV maxKV(bool remove);
 
-    // inplace sort, will first move all kv to the left side, then sort
-    void sortKV();
+    // inplace sort, will first move all kv to the left side, then sort. 
+    // update_fingerprints: whether to keep kv_pair and fingerprints consistent.
+    void sortKV(bool update_fingerprints);
 };
 
 
@@ -167,6 +168,13 @@ private:
 
     uint64_t splitLeaf(LeafNode* leaf);
 
+    // insert kv into tree, split reachedLeafNode and update parent if necessary
+    // reachedLeafNode: leafnode to insert kv. Split may happen before insert
+    // parentNode: parent of reachedLeafNode
+    // prevPos: if not equal to MAX_LEAF_SIZE, will remove kv at prevPos in reachedLeafNode
+    void insertKVAndUpdateTree(LeafNode* reachedLeafNode, InnerNode* parentNode, 
+                                           struct KV kv, uint64_t prevPos);
+
     void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
 
     // if parent's children are leaf nodes, assume left child has one child at index 0, right child empty
@@ -181,6 +189,6 @@ private:
     uint64_t minKey(BaseNode* node);
 
 
-    LeafNode* current_leaf;
+    LeafNode* leaf_cpy;
     uint64_t bitmap_idx;
 };
