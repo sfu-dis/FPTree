@@ -23,7 +23,7 @@
 #define MAX_INNER_SIZE 2
 #define MAX_LEAF_SIZE 2
 
-static size_t getOneByteHash(uint64_t key);
+static uint8_t getOneByteHash(uint64_t key);
 
 class BaseNode
 {
@@ -189,6 +189,6 @@ private:
     uint64_t minKey(BaseNode* node);
 
 
-    LeafNode* leaf_cpy;
+    LeafNode leaf_cpy;
     uint64_t bitmap_idx;
 };

@@ -1,11 +1,10 @@
 #include "fptree.h"
 
-size_t getOneByteHash(uint64_t key)
+static uint8_t getOneByteHash(uint64_t key)
 {
     size_t len = sizeof(uint64_t);
-    size_t hashKey = std::_Hash_bytes(&key, len, 1);
-    hashKey = (hashKey >> (8 * 0)) & 0xff;
-    return hashKey;
+    uint8_t oneByteHashKey = std::_Hash_bytes(&key, len, 1) & 0xff;
+    return oneByteHashKey;
 }
 
 BaseNode::BaseNode() 
@@ -29,9 +28,8 @@ InnerNode::InnerNode(const InnerNode& inner)
 
 InnerNode::~InnerNode()
 {
-    for (auto child : this->p_children)
-        delete child;
-    delete this;
+    for (size_t i = 0; i < this->nKey; i++)
+        delete this->p_children[i];
 }
 
 std::pair<uint64_t, bool> InnerNode::findChildIndex(uint64_t key)
@@ -224,7 +222,6 @@ void LeafNode::sortKV(bool update_fingerprints = true)
 FPtree::FPtree() 
 {
     root = nullptr;
-    leaf_cpy = nullptr;
     bitmap_idx = MAX_LEAF_SIZE;
 }
 
@@ -232,8 +229,6 @@ FPtree::~FPtree()
 {
     if (root != nullptr)
         delete root;
-    if (leaf_cpy != nullptr)
-        delete leaf_cpy;
 }
 
 
@@ -680,39 +675,36 @@ void FPtree::ScanInitialize(uint64_t key)
 {
     if (!root)
         return;
-    if (leaf_cpy == nullptr)
-        leaf_cpy = new LeafNode(*findLeaf(key));
-    else
-        *leaf_cpy = *findLeaf(key);
-    while (leaf_cpy != nullptr)
+    LeafNode* leaf = findLeaf(key);
+    while (leaf != nullptr)
     {
-        leaf_cpy->sortKV(false);
-        uint64_t kv_count = leaf_cpy->findFirstZero();
+        leaf_cpy = *leaf;
+        leaf_cpy.sortKV(false);
+        uint64_t kv_count = leaf_cpy.findFirstZero();
         for (uint64_t i = 0; i < kv_count; i++)
         {
-            if (leaf_cpy->kv_pairs[i].key >= key)
+            if (leaf_cpy.kv_pairs[i].key >= key)
             {
                 bitmap_idx = i;
                 return;
             }
         }
-        leaf_cpy = leaf_cpy->p_next;
-    }
+        leaf = leaf->p_next;
+    }   
 }
 
 KV FPtree::ScanNext()
 {
-    KV kv;
-    kv = leaf_cpy->kv_pairs[bitmap_idx ++];
-    if (bitmap_idx == MAX_LEAF_SIZE || leaf_cpy->bitmap.test(bitmap_idx) == 0)  // scan next leaf
+    KV kv = leaf_cpy.kv_pairs[bitmap_idx ++];
+    if (bitmap_idx == MAX_LEAF_SIZE || leaf_cpy.bitmap.test(bitmap_idx) == 0)  // scan next leaf
     {
-        if (leaf_cpy->p_next == nullptr) // no more leaves, scan complete
+        if (leaf_cpy.p_next == nullptr) // no more leaves, scan complete
         {
-            leaf_cpy = nullptr;
+            bitmap_idx = MAX_LEAF_SIZE;
             return kv;
         }
-        *leaf_cpy = *leaf_cpy->p_next;
-        leaf_cpy->sortKV(false);
+        leaf_cpy = *leaf_cpy.p_next;
+        leaf_cpy.sortKV(false);
         bitmap_idx = 0;
     }
     return kv;
@@ -720,7 +712,7 @@ KV FPtree::ScanNext()
 
 bool FPtree::ScanComplete()
 {
-    return this->leaf_cpy == nullptr;
+    return this->bitmap_idx == MAX_LEAF_SIZE;
 }
 
 
