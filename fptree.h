@@ -21,7 +21,7 @@
 
 // static const uint64_t kMaxEntries = 256;
 #define MAX_INNER_SIZE 4096
-#define MAX_LEAF_SIZE 64
+#define MAX_LEAF_SIZE 32
 
 static uint8_t getOneByteHash(uint64_t key);
 
