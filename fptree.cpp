@@ -497,15 +497,15 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     return splitKey;
 }
 
-uint64_t FPtree::deleteKey(uint64_t key)
+bool FPtree::deleteKey(uint64_t key)
 {
-    assert(root != nullptr && "Exception: Delete from empty tree!");
-
     if (!root->isInnerNode)     // tree with root only
     {
         uint64_t idx = reinterpret_cast<LeafNode*> (root)->findKVIndex(key);
-        assert(idx != MAX_LEAF_SIZE && "Exception: KV to delete is not present in leaf!");
-        return reinterpret_cast<LeafNode*> (root)->removeKVByIdx(idx);
+        if (idx == MAX_LEAF_SIZE)
+        	return false;
+        reinterpret_cast<LeafNode*> (root)->removeKVByIdx(idx);
+        return true;
     }
 
     std::tuple<InnerNode*, InnerNode*, uint64_t> tpl = findInnerAndLeafWithParent(key);
@@ -515,7 +515,8 @@ uint64_t FPtree::deleteKey(uint64_t key)
     LeafNode* leaf = reinterpret_cast<LeafNode*>(parent->p_children[child_idx]);
 
     uint64_t idx = leaf->findKVIndex(key);
-    assert(idx != MAX_LEAF_SIZE && "Exception: KV to delete is not present in leaf!");
+    if (idx == MAX_LEAF_SIZE)
+        return false;
 
     uint64_t value;
 
@@ -554,7 +555,7 @@ uint64_t FPtree::deleteKey(uint64_t key)
         else
             indexNode->keys[p.first - 1] = minKey(indexNode->p_children[p.first]);
     }
-    return value;
+    return true;
 }
 
 void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t right_child_idx)

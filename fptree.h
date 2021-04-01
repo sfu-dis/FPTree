@@ -20,8 +20,8 @@
 #pragma once
 
 // static const uint64_t kMaxEntries = 256;
-#define MAX_INNER_SIZE 2
-#define MAX_LEAF_SIZE 2
+#define MAX_INNER_SIZE 4096
+#define MAX_LEAF_SIZE 64
 
 static uint8_t getOneByteHash(uint64_t key);
 
@@ -141,8 +141,8 @@ public:
     // return false if key already exists, otherwise insert kv
     bool insert(struct KV kv);
 
-    // delete key from tree and return associated value 
-    uint64_t deleteKey(uint64_t key);
+    // delete key from tree, return false if key not found 
+    bool deleteKey(uint64_t key);
 
     // initialize scan by finding the first kv with kv.key >= key
     void ScanInitialize(uint64_t key);

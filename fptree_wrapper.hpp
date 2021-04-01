@@ -4,6 +4,7 @@
 #include "tree_api.hpp"
 #include "fptree.h"
 
+#include <cstring>
 #include <mutex>
 #include <shared_mutex>
 
@@ -21,7 +22,7 @@ public:
 
 private:
     FPtree tree_;
-    std::shared_mutex mutex_;
+    // std::shared_mutex mutex_;
 };
 
 
@@ -36,11 +37,11 @@ fptree_wrapper::~fptree_wrapper()
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
 {
     // For now only support 8 bytes key and value (uint64_t)
-    assert(key_sz == sizeof(uint64_t));
-    std::shared_lock lock(mutex_);
+    // assert(key_sz == sizeof(uint64_t));
+    // std::shared_lock lock(mutex_);
     uint64_t value = tree_.find(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)));
     if (value == 0)
-        return false;
+    	std::cout << "Search key not found: " << key << std::endl;
     memcpy(value_out, &value, sizeof(value));
     return true;
 }
@@ -48,31 +49,40 @@ bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
 
 bool fptree_wrapper::insert(const char* key, size_t key_sz, const char* value, size_t value_sz)
 {
-    assert(key_sz == sizeof(uint64_t) && value_sz == sizeof(uint64_t));
-    std::unique_lock lock(mutex_);
-    KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
-    return tree_.insert(kv);
+    // assert(key_sz == sizeof(uint64_t) && value_sz == sizeof(uint64_t));
+    // std::unique_lock lock(mutex_);
+    uint64_t k = *reinterpret_cast<uint64_t*>(const_cast<char*>(key));
+    KV kv = KV(k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+    if (!tree_.insert(kv))
+    	std::cout << "Insert key already exists: " << key << std::endl;
+    return true;
 }
 
 bool fptree_wrapper::update(const char* key, size_t key_sz, const char* value, size_t value_sz)
 {
-    assert(key_sz == sizeof(uint64_t) && value_sz == sizeof(uint64_t));
-    std::unique_lock lock(mutex_);
-    KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
-    return tree_.update(kv);
+    // assert(key_sz == sizeof(uint64_t) && value_sz == sizeof(uint64_t));
+    // std::unique_lock lock(mutex_);
+    uint64_t k = *reinterpret_cast<uint64_t*>(const_cast<char*>(key));
+    KV kv = KV(k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+    if (!tree_.update(kv))
+    	std::cout << "Update key not found: " << key << std::endl;
+    return true;
 }
 
 bool fptree_wrapper::remove(const char* key, size_t key_sz)
 {
-    assert(key_sz == sizeof(uint64_t));
-    std::unique_lock lock(mutex_);
-    return tree_.deleteKey(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)));
+    // assert(key_sz == sizeof(uint64_t));
+    // std::unique_lock lock(mutex_);
+    uint64_t k = *reinterpret_cast<uint64_t*>(const_cast<char*>(key));
+ 	if (!tree_.deleteKey(k))
+    	std::cout << "Delete key not found: " << key << std::endl;
+    return true;
 }
 
 int fptree_wrapper::scan(const char* key, size_t key_sz, int scan_sz, char*& values_out)
 {
-    assert(key_sz == sizeof(uint64_t));
-    std::shared_lock lock(mutex_);
+    // assert(key_sz == sizeof(uint64_t));
+    // std::shared_lock lock(mutex_);
 
     constexpr size_t ONE_MB = 1ULL << 20;
     static thread_local std::array<char, ONE_MB> results;
