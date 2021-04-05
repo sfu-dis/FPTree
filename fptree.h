@@ -14,6 +14,7 @@
 #include <utility>
 #include <time.h>  
 #include <atomic>
+#include <algorithm>
 
 #include <cassert>
 
@@ -187,6 +188,10 @@ private:
     bool tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx);
 
     uint64_t minKey(BaseNode* node);
+
+    LeafNode* minLeaf(BaseNode* node);
+
+    LeafNode* maxLeaf(BaseNode* node);
 
 
     LeafNode leaf_cpy;

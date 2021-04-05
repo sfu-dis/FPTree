@@ -344,6 +344,12 @@ void FPtree::insertKVAndUpdateTree(LeafNode* reachedLeafNode, InnerNode* parentN
             insertNode = reachedLeafNode->p_next;
     }
 
+    if constexpr (MAX_LEAF_SIZE == 1) 
+    {
+        insertNode->bitmap.set(0, 0);
+        splitKey = std::max(kv.key, splitKey);
+    }
+
     insertNode->addKV(kv); 
     if (prevPos != MAX_LEAF_SIZE)
         insertNode->removeKVByIdx(prevPos);
@@ -357,7 +363,18 @@ void FPtree::insertKVAndUpdateTree(LeafNode* reachedLeafNode, InnerNode* parentN
             reinterpret_cast<InnerNode*> (root)->p_children[1] = reachedLeafNode->p_next;
             return;
         }
-        updateParents(splitKey, parentNode, reachedLeafNode->p_next);
+        if constexpr (MAX_INNER_SIZE != 1)
+            updateParents(splitKey, parentNode, reachedLeafNode->p_next);
+        else
+        {
+            InnerNode* newInnerNode = new InnerNode();
+            newInnerNode->addKey(0, splitKey, reachedLeafNode, false);
+            newInnerNode->p_children[1] = reachedLeafNode->p_next;
+            if (parentNode->keys[0] > splitKey)
+                parentNode->p_children[0] = newInnerNode;
+            else
+                parentNode->p_children[1] = newInnerNode;
+        }
     }
 }
 
@@ -476,7 +493,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
     }
 
     leaf->bitmap = newLeafNode->bitmap;
-    leaf->bitmap.flip();
+    if constexpr (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
     leaf->p_next = newLeafNode;
 
     return splitKey;
@@ -519,6 +536,33 @@ bool FPtree::deleteKey(uint64_t key)
         return false;
 
     uint64_t value;
+    if constexpr (MAX_INNER_SIZE == 1)
+    {
+        bool erase_index = false;
+        value = leaf->removeKVByIdx(idx);
+        if (indexNode != nullptr && indexNode != parent)
+            erase_index = true;
+        if (leaf->countKV() == 0)
+        {
+            if (parent == root)
+                root = parent->p_children[(child_idx + 1) % 2];
+            else
+            {
+                std::pair<InnerNode*, uint64_t> p = findInnerNodeParent(parent);
+                p.first->p_children[p.second] = parent->p_children[(child_idx + 1) % 2];
+                if (erase_index)
+                    maxLeaf(indexNode->p_children[0])->p_next = leaf->p_next;
+            }
+            if (child_idx == 1) // deleting right child
+                maxLeaf(parent->p_children[0])->p_next = leaf->p_next;
+            parent->nKey = 0;
+            delete parent;
+            delete leaf;
+        }
+        if (erase_index)
+            indexNode->keys[0] = minKey(indexNode->p_children[1]);
+        return true;
+    }
 
     if (indexNode == nullptr)  // key does not appear in any innernode
     {
@@ -670,6 +714,20 @@ uint64_t FPtree::minKey(BaseNode* node)
     while (node->isInnerNode)
         node = reinterpret_cast<InnerNode*> (node)->p_children[0];
     return reinterpret_cast<LeafNode*> (node)->minKV().key;
+}
+
+LeafNode* FPtree::minLeaf(BaseNode* node)
+{
+    while(node->isInnerNode)
+        node = reinterpret_cast<InnerNode*> (node)->p_children[0];
+    return reinterpret_cast<LeafNode*> (node);
+}
+
+LeafNode* FPtree::maxLeaf(BaseNode* node)
+{
+    while(node->isInnerNode)
+        node = reinterpret_cast<InnerNode*> (node)->p_children[reinterpret_cast<InnerNode*> (node)->nKey];
+    return reinterpret_cast<LeafNode*> (node);
 }
 
 void FPtree::ScanInitialize(uint64_t key)
