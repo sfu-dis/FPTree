@@ -24,7 +24,7 @@
 
 #pragma once
 
-#define TEST_MODE 0
+#define TEST_MODE 1
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
@@ -76,7 +76,7 @@ struct KV {
         size_t size;
         bool isInnerNode;
         std::bitset<MAX_LEAF_SIZE> bitmap;
-        uint8_t fingerprints[MAX_LEAF_SIZE];
+        __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
         KV kv_pairs[MAX_LEAF_SIZE];
         std::atomic<bool> lock;
     };
@@ -139,7 +139,7 @@ struct LeafNode : BaseNode
         LeafNode* p_next;
     #endif
 
-    uint8_t fingerprints[MAX_LEAF_SIZE];
+    __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
     KV kv_pairs[MAX_LEAF_SIZE];
     std::atomic<bool> lock;
 

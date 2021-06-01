@@ -146,7 +146,7 @@ uint64_t LeafNode::findKVIndex(uint64_t key)
 
     size_t counter = 0;
     while (mask != 0) {
-        if (mask & 1 && this->bitmap[counter] && key == this->keys[counter])
+        if (mask & 1 && this->bitmap[counter] && key == this->kv_pairs[counter].key)
             return counter;
         mask >>= 1;
         counter ++;
