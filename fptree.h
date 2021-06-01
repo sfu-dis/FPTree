@@ -18,6 +18,7 @@
 #include <atomic>
 #include <queue> 
 #include <string.h> 
+#include "immintrin.h"
 
 
 #pragma once
