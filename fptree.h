@@ -1,16 +1,9 @@
-<<<<<<< HEAD
-=======
 #include <stdio.h>    
 #include <stdlib.h> 
->>>>>>> dram-fptree
 #include <iostream>
 #include <string>
 #include <cstdint>
 #include <stdint.h>
-<<<<<<< HEAD
-
-using namespace std;
-=======
 #include <sys/types.h>
 #include <bits/hash_bytes.h>
 #include <bitset>
@@ -26,19 +19,12 @@ using namespace std;
 #include <queue> 
 #include <string.h> 
 
->>>>>>> dram-fptree
 
 #pragma once
 
 // static const uint64_t kMaxEntries = 256;
 #define MAX_INNER_SIZE 3
 #define MAX_LEAF_SIZE 4
-<<<<<<< HEAD
-
-class BaseNode
-{
-protected:
-=======
 #define SIZE_ONE_BYTE_HASH 1
 //#define PMEM 
 
@@ -95,7 +81,6 @@ struct KV {
 
 struct BaseNode
 {
->>>>>>> dram-fptree
     bool isInnerNode;
 
     friend class FPtree;
@@ -106,11 +91,7 @@ public:
 
 
 
-<<<<<<< HEAD
-class InnerNode : public BaseNode
-=======
 struct InnerNode : BaseNode
->>>>>>> dram-fptree
 {
     uint64_t nKey;
     uint64_t keys[MAX_INNER_SIZE];
@@ -120,36 +101,6 @@ struct InnerNode : BaseNode
 
 public:
     InnerNode();
-<<<<<<< HEAD
-};
-
-
-
-struct KV {
-    uint64_t key;
-    uint64_t value;
-
-    KV() {}
-    KV(uint64_t key, uint64_t value) { this->key = key; this->value = value; }
-};
-
-class LeafNode : public BaseNode
-{
-    bool bitmap[MAX_LEAF_SIZE];
-    LeafNode* p_next;
-    size_t fingerprints[MAX_LEAF_SIZE];
-    KV kv_pairs[MAX_LEAF_SIZE];
-    
-    friend class FPtree;
-
-public:
-    LeafNode();
-    LeafNode(uint64_t nKey, uint64_t *keys, bool* bitmap, LeafNode* p_next, 
-             size_t* fingerprints, KV* kv_pairs);
-
-    int64_t findFirstZero();
-    bool isFull() { return this->findFirstZero() == MAX_LEAF_SIZE; }
-=======
     InnerNode(const InnerNode& inner);
     ~InnerNode();
 
@@ -212,14 +163,10 @@ public:
     // find and optionally remove the min/max kv in leaf
     KV minKV(bool remove);
     KV maxKV(bool remove);
->>>>>>> dram-fptree
 };
 
 
 
-<<<<<<< HEAD
-class FPtree 
-=======
 #ifdef PMEM
     struct List {
         TOID(struct LeafNode) head;
@@ -229,7 +176,6 @@ class FPtree
 
 
 struct FPtree 
->>>>>>> dram-fptree
 {
     BaseNode *root;
 
@@ -239,20 +185,6 @@ public:
 
     BaseNode* getRoot () { return this->root; }
 
-<<<<<<< HEAD
-    void displayTree(BaseNode* root);
-
-    BaseNode* findLeaf(uint64_t key);
-    BaseNode* findParent(uint64_t key);
-    InnerNode* findParentNode(BaseNode* root, BaseNode* child);
-    uint64_t find(uint64_t key);
-
-    uint64_t findSplitKey(LeafNode* leaf);
-    void insert(struct KV kv);
-    uint64_t splitLeaf(LeafNode* leaf);
-    void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
-
-=======
     void displayTree(BaseNode *root);
 
     void printFPTree(std::string prefix, BaseNode *root);
@@ -325,5 +257,4 @@ private:
     
     LeafNode* current_leaf;
     uint64_t bitmap_idx;
->>>>>>> dram-fptree
 };
