@@ -18,15 +18,26 @@
 #include <atomic>
 #include <queue> 
 #include <string.h> 
+#include <limits>
 #include "immintrin.h"
 
 
 #pragma once
 
+#define TEST_MODE 0
+
 // static const uint64_t kMaxEntries = 256;
-#define MAX_INNER_SIZE 3
-#define MAX_LEAF_SIZE 4
-#define SIZE_ONE_BYTE_HASH 1
+#if TEST_MODE == 0
+    #define MAX_INNER_SIZE 1024
+    #define MAX_LEAF_SIZE 48
+    #define SIZE_ONE_BYTE_HASH 1
+#else
+    #define MAX_INNER_SIZE 3
+    #define MAX_LEAF_SIZE 4
+    #define SIZE_ONE_BYTE_HASH 1
+#endif
+
+const static uint64_t offset = std::numeric_limits<uint64_t>::max()>>(64-MAX_LEAF_SIZE);
 //#define PMEM 
 
 #ifdef PMEM
@@ -181,6 +192,7 @@ struct FPtree
     BaseNode *root;
 
 public:
+
     FPtree();
     ~FPtree();
 
@@ -191,7 +203,7 @@ public:
     void printFPTree(std::string prefix, BaseNode *root);
 
     // return 0 if key not found, otherwise return value associated with key
-    bool find(uint64_t key);
+    uint64_t find(uint64_t key);
 
     // return false if kv.key not found, otherwise update value associated with key
     bool update(struct KV kv);

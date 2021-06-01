@@ -103,13 +103,13 @@ void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_c
         this->p_children[index+1] = child;
 }
 
-uint64_t LeafNode::findFirstZero()
+inline uint64_t LeafNode::findFirstZero()
 {
     std::bitset<MAX_LEAF_SIZE> b = bitmap;
     return b.flip()._Find_first();
 }
 
-void LeafNode::addKV(struct KV kv)
+inline void LeafNode::addKV(struct KV kv)
 {
     uint64_t idx = this->findFirstZero();
     this->fingerprints[idx] = getOneByteHash(kv.key);
@@ -117,14 +117,14 @@ void LeafNode::addKV(struct KV kv)
     this->bitmap.set(idx);
 }
 
-uint64_t LeafNode::removeKV(uint64_t key)
+inline uint64_t LeafNode::removeKV(uint64_t key)
 {
     uint64_t idx = findKVIndex(key);
     // assert(idx != MAX_LEAF_SIZE);
     return this->removeKVByIdx(idx);
 }
 
-uint64_t LeafNode::removeKVByIdx(uint64_t pos)
+inline uint64_t LeafNode::removeKVByIdx(uint64_t pos)
 {
     // assert(this->bitmap.test(pos) == true);
     this->bitmap.set(pos, 0);
@@ -134,14 +134,22 @@ uint64_t LeafNode::removeKVByIdx(uint64_t pos)
 uint64_t LeafNode::findKVIndex(uint64_t key)
 {
     size_t key_hash = getOneByteHash(key);
-    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-    {
-        if (this->bitmap[i] == 1 &&
-            this->fingerprints[i] == key_hash &&
-            this->kv_pairs[i].key == key)
-        {
-            return i;
-        }
+    __m512i key_64B = _mm512_set1_epi8((char)key_hash);
+
+       // b. load meta into another 16B register
+    __m512i fgpt_64B= _mm512_load_si512((__m512i*)this->fingerprints);
+
+       // c. compare them
+    uint64_t mask = uint64_t(_mm512_cmpeq_epi8_mask(key_64B, fgpt_64B));
+
+    mask &= offset;
+
+    size_t counter = 0;
+    while (mask != 0) {
+        if (mask & 1 && this->bitmap[counter] && key == this->keys[counter])
+            return counter;
+        mask >>= 1;
+        counter ++;
     }
     return MAX_LEAF_SIZE;
 }
@@ -150,7 +158,7 @@ KV LeafNode::minKV(bool remove = false)
 {
     uint64_t min_key = -1, min_key_idx = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        if (this->bitmap[i] == 1 && this->kv_pairs[i].key <= min_key)
+        if (this->bitmap[i] && this->kv_pairs[i].key <= min_key)
         {
             min_key = this->kv_pairs[i].key;
             min_key_idx = i;
@@ -164,7 +172,7 @@ KV LeafNode::maxKV(bool remove = false)
 {
     uint64_t max_key = 0, max_key_idx = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        if (this->bitmap[i] == 1 && this->kv_pairs[i].key >= max_key)
+        if (this->bitmap[i] && this->kv_pairs[i].key >= max_key)
         {
             max_key = this->kv_pairs[i].key;
             max_key_idx = i;
@@ -174,7 +182,7 @@ KV LeafNode::maxKV(bool remove = false)
     return this->kv_pairs[max_key_idx];
 }
 
-LeafNode* FPtree::maxLeaf(BaseNode* node)
+inline LeafNode* FPtree::maxLeaf(BaseNode* node)
 {
     while(node->isInnerNode)
         node = reinterpret_cast<InnerNode*> (node)->p_children[reinterpret_cast<InnerNode*> (node)->nKey];
@@ -222,7 +230,7 @@ FPtree::~FPtree()
 }
 
 
-static uint8_t getOneByteHash(uint64_t key)
+inline static uint8_t getOneByteHash(uint64_t key)
 {
     size_t len = sizeof(uint64_t);
     uint8_t oneByteHashKey = std::_Hash_bytes(&key, len, 1) & 0xff;
@@ -231,7 +239,7 @@ static uint8_t getOneByteHash(uint64_t key)
 
 
 #ifdef PMEM
-    uint64_t findFirstZero(TOID(struct LeafNode) *dst)
+    inline uint64_t findFirstZero(TOID(struct LeafNode) *dst)
     {
         std::bitset<MAX_LEAF_SIZE> b = D_RW(*dst)->bitmap;
         return b.flip()._Find_first();
@@ -309,7 +317,7 @@ inline std::pair<uint64_t, bool> InnerNode::findChildIndex(uint64_t key)
 }
 
 
-LeafNode* FPtree::findLeaf(uint64_t key) 
+inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
     return findLeafWithParent(key).second;
 }
@@ -361,25 +369,16 @@ std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* child)
 }
 
 
-bool FPtree::find(uint64_t key)
+uint64_t FPtree::find(uint64_t key)
 {
     if (root != nullptr)
     {
         LeafNode* pLeafNode = findLeaf(key);
-        size_t key_hash = getOneByteHash(key);
-        for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        {
-            KV currKV = pLeafNode->kv_pairs[i];
-            if (pLeafNode->bitmap[i] == 1 &&
-                pLeafNode->fingerprints[i] == key_hash &&
-                currKV.key == key)
-            {
-                return true;
-            }
-        }
+        uint64_t idx = pLeafNode->findKVIndex(key);
+        if (idx != MAX_LEAF_SIZE)
+            return pLeafNode->kv_pairs[idx].value;
     }
-    return false;
-    //return true;
+    return 0;
 }
 
 
@@ -589,17 +588,9 @@ bool FPtree::insert(struct KV kv)
     LeafNode* reachedLeafNode = p.second;
 
     // return false if key already exists
-    size_t key_hash = getOneByteHash(kv.key);
-    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-    {
-        KV currKV = reachedLeafNode->kv_pairs[i];
-        if (reachedLeafNode->bitmap[i] == 1 &&
-            reachedLeafNode->fingerprints[i] == key_hash &&
-            currKV.key == kv.key)
-        {
-            return false;
-        }
-    }
+    uint64_t idx = reachedLeafNode->findKVIndex(kv.key);
+    if (idx != MAX_LEAF_SIZE)
+        return false;
 
     bool decision = reachedLeafNode->isFull();
 
