@@ -24,7 +24,7 @@
 
 #pragma once
 
-#define TEST_MODE 1
+#define TEST_MODE 0
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
@@ -37,7 +37,8 @@
     #define SIZE_ONE_BYTE_HASH 1
 #endif
 
-const static uint64_t offset = std::numeric_limits<uint64_t>::max()>>(64-MAX_LEAF_SIZE);
+const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
+
 //#define PMEM 
 
 #ifdef PMEM
