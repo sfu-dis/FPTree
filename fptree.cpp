@@ -1,16 +1,18 @@
 #include "fptree.h"
 
-static uint8_t getOneByteHash(uint64_t key)
-{
-    size_t len = sizeof(uint64_t);
-    uint8_t oneByteHashKey = std::_Hash_bytes(&key, len, 1) & 0xff;
-    return oneByteHashKey;
-}
+
+#ifdef PMEM
+    inline bool file_pool_exists(const std::string& name) {
+        return ( access( name.c_str(), F_OK ) != -1 );
+    }
+#endif
+
 
 BaseNode::BaseNode() 
 {
     this->isInnerNode = false;
 }
+
 
 InnerNode::InnerNode()
 {
@@ -22,8 +24,8 @@ InnerNode::InnerNode(const InnerNode& inner)
 {
     this->isInnerNode = true;
     this->nKey = inner.nKey;
-    this->keys = inner.keys;
-    this->p_children = inner.p_children;
+    memcpy(&this->keys, &inner.keys, sizeof(inner.keys));
+    memcpy(&this->p_children, &inner.p_children, sizeof(inner.p_children));
 }
 
 InnerNode::~InnerNode()
@@ -32,33 +34,41 @@ InnerNode::~InnerNode()
         delete this->p_children[i];
 }
 
-std::pair<uint64_t, bool> InnerNode::findChildIndex(uint64_t key)
-{
-    int mid, l = 0, r = this->nKey - 1;
-    bool contain_key = false;
-    while(l <= r)
+#ifdef PMEM
+#else
+    LeafNode::LeafNode() 
     {
-        mid = l + (r - l)/2;
-        if(this->keys[mid] == key)
-        {
-            mid ++;
-            contain_key = true;
-            break;
-        }
-        else if(this->keys[mid] > key)
-            r = mid-1;
-        else 
-            l = mid+1;
+        this->isInnerNode = false;
+        this->bitmap.reset();
+        this->p_next = nullptr;
+        this->lock = ATOMIC_VAR_INIT(false);
     }
-    if (mid < this->nKey && key >= this->keys[mid])
-        mid ++;
-    assert(mid >= 0);
-    return std::make_pair((uint64_t)mid, contain_key);
-}
+
+    LeafNode::LeafNode(const LeafNode& leaf)
+    {
+        this->isInnerNode = false;
+        this->bitmap = leaf.bitmap;
+        memcpy(&this->fingerprints, &leaf.fingerprints, sizeof(leaf.fingerprints));
+        memcpy(&this->kv_pairs, &leaf.kv_pairs, sizeof(leaf.kv_pairs));
+        this->p_next = leaf.p_next;
+        this->lock.store(leaf.lock, std::memory_order_relaxed);
+    }
+
+    LeafNode& LeafNode::operator=(const LeafNode& leaf)
+    {
+        this->isInnerNode = false;
+        this->bitmap = leaf.bitmap;
+        memcpy(&this->fingerprints, &leaf.fingerprints, sizeof(leaf.fingerprints));
+        memcpy(&this->kv_pairs, &leaf.kv_pairs, sizeof(leaf.kv_pairs));
+        this->p_next = leaf.p_next;
+        this->lock.store(leaf.lock, std::memory_order_relaxed);
+        return *this;
+    }
+#endif
 
 void InnerNode::removeKey(uint64_t index, bool remove_right_child = true)
 {
-    assert(this->nKey > index && "Remove key index out of range!");
+    // assert(this->nKey > index && "Remove key index out of range!");
     this->nKey--;
     uint64_t i = index, j = i;
     if (remove_right_child)
@@ -75,7 +85,7 @@ void InnerNode::removeKey(uint64_t index, bool remove_right_child = true)
 
 void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right = true)
 {
-    assert(this->nKey >= index && "Insert key index out of range!");
+    // assert(this->nKey >= index && "Insert key index out of range!");
     uint64_t i = this->nKey, j = i;
     this->nKey++;
     for (i; i > index; i--)
@@ -91,36 +101,6 @@ void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_c
     }
     else
         this->p_children[index+1] = child;
-}
-
-
-LeafNode::LeafNode() 
-{
-    this->isInnerNode = false;
-    this->bitmap.reset();
-    this->p_next = nullptr;
-    this->lock = ATOMIC_VAR_INIT(false);
-}
-
-LeafNode::LeafNode(const LeafNode& leaf)
-{
-    this->isInnerNode = false;
-    this->bitmap = leaf.bitmap;
-    this->fingerprints = leaf.fingerprints;
-    this->kv_pairs = leaf.kv_pairs;
-    this->p_next = leaf.p_next;
-    this->lock.store(leaf.lock, std::memory_order_relaxed);
-}
-
-LeafNode& LeafNode::operator=(const LeafNode& leaf)
-{
-    this->isInnerNode = false;
-    this->bitmap = leaf.bitmap;
-    this->fingerprints = leaf.fingerprints;
-    this->kv_pairs = leaf.kv_pairs;
-    this->p_next = leaf.p_next;
-    this->lock.store(leaf.lock, std::memory_order_relaxed);
-    return *this;
 }
 
 uint64_t LeafNode::findFirstZero()
@@ -140,13 +120,13 @@ void LeafNode::addKV(struct KV kv)
 uint64_t LeafNode::removeKV(uint64_t key)
 {
     uint64_t idx = findKVIndex(key);
-    assert(idx != MAX_LEAF_SIZE);
+    // assert(idx != MAX_LEAF_SIZE);
     return this->removeKVByIdx(idx);
 }
 
 uint64_t LeafNode::removeKVByIdx(uint64_t pos)
 {
-    assert(this->bitmap.test(pos) == true);
+    // assert(this->bitmap.test(pos) == true);
     this->bitmap.set(pos, 0);
     return this->kv_pairs[pos].value;
 }
@@ -156,7 +136,7 @@ uint64_t LeafNode::findKVIndex(uint64_t key)
     size_t key_hash = getOneByteHash(key);
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
     {
-        if (this->bitmap.test(i) == 1 &&
+        if (this->bitmap[i] == 1 &&
             this->fingerprints[i] == key_hash &&
             this->kv_pairs[i].key == key)
         {
@@ -170,7 +150,7 @@ KV LeafNode::minKV(bool remove = false)
 {
     uint64_t min_key = -1, min_key_idx = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        if (this->bitmap.test(i) == 1 && this->kv_pairs[i].key <= min_key)
+        if (this->bitmap[i] == 1 && this->kv_pairs[i].key <= min_key)
         {
             min_key = this->kv_pairs[i].key;
             min_key_idx = i;
@@ -184,7 +164,7 @@ KV LeafNode::maxKV(bool remove = false)
 {
     uint64_t max_key = 0, max_key_idx = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        if (this->bitmap.test(i) == 1 && this->kv_pairs[i].key >= max_key)
+        if (this->bitmap[i] == 1 && this->kv_pairs[i].key >= max_key)
         {
             max_key = this->kv_pairs[i].key;
             max_key_idx = i;
@@ -194,68 +174,105 @@ KV LeafNode::maxKV(bool remove = false)
     return this->kv_pairs[max_key_idx];
 }
 
-void LeafNode::sortKV(bool update_fingerprints = true)
+LeafNode* FPtree::maxLeaf(BaseNode* node)
 {
-    uint64_t slot_idx = findFirstZero();    // idx of first empty slot
-    for (uint64_t kv_idx = slot_idx + 1; kv_idx < MAX_LEAF_SIZE;)
-    {
-        if (this->bitmap.test(kv_idx))
-        {
-            this->kv_pairs[slot_idx] = this->kv_pairs[kv_idx];
-            this->bitmap.set(slot_idx);
-            this->bitmap.set(kv_idx, 0);
-            slot_idx = findFirstZero();
-            kv_idx = slot_idx + 1;
-        }
-        else
-            kv_idx++;
-    }
-    std::sort(this->kv_pairs.begin(), this->kv_pairs.begin() + slot_idx, 
-        [] (const KV& kv1, const KV& kv2){
-            return kv1.key < kv2.key;
-        });
-    if (update_fingerprints)
-        for (uint64_t i = 0; i < slot_idx; i++)
-            this->fingerprints[i] = getOneByteHash(this->kv_pairs[i].key);
+    while(node->isInnerNode)
+        node = reinterpret_cast<InnerNode*> (node)->p_children[reinterpret_cast<InnerNode*> (node)->nKey];
+    return reinterpret_cast<LeafNode*> (node);
 }
+
 
 FPtree::FPtree() 
 {
-    root = nullptr;
-    bitmap_idx = MAX_LEAF_SIZE;
+    #ifdef PMEM
+        root = NULL;
+
+        const char *path = "./test_pool";
+
+        if (file_pool_exists(path) == 0) 
+        {
+            if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
+            {
+                perror("failed to create pool\n");
+            }
+        } 
+        else 
+        {
+            if ((pop = pmemobj_open(path, POBJ_LAYOUT_NAME(FPtree))) == NULL)
+            {
+                perror("failed to open pool\n");
+            }
+        }
+    #else
+        root = nullptr;
+        bitmap_idx = MAX_LEAF_SIZE;
+    #endif
+
 }
+
 
 FPtree::~FPtree() 
 {
-    if (root != nullptr)
-        delete root;
+    #ifdef PMEM
+        pmemobj_close(pop);
+    #else
+        if (root != nullptr)
+            delete root;
+    #endif  
 }
 
 
-void FPtree::displayTree(BaseNode* root)
+static uint8_t getOneByteHash(uint64_t key)
 {
-    if (root == nullptr)
-    return;
-
-    if (root->isInnerNode)
-    {
-        InnerNode* node = reinterpret_cast<InnerNode*> (root);
-        for (size_t i = 0; i < node->nKey; i++)
-            std::cout << node->keys[i] << "  ";
-        std::cout << "\n" << std::endl;
-
-        for (size_t i = 0; i < node->nKey + 1; i++)
-            displayTree(node->p_children[i]);
-    }
-    else
-    {
-        LeafNode* node = reinterpret_cast<LeafNode*> (root);
-        std::cout << "L ";
-        for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
-                std::cout << (node->bitmap.test(i) == 1 ? std::to_string(node->kv_pairs[i].key) : "")  << "  ";
-        std::cout << "\n" << std::endl;
-    }
+    size_t len = sizeof(uint64_t);
+    uint8_t oneByteHashKey = std::_Hash_bytes(&key, len, 1) & 0xff;
+    return oneByteHashKey;
 }
+
+
+#ifdef PMEM
+    uint64_t findFirstZero(TOID(struct LeafNode) *dst)
+    {
+        std::bitset<MAX_LEAF_SIZE> b = D_RW(*dst)->bitmap;
+        return b.flip()._Find_first();
+    }
+
+    static void showList()
+    {
+        TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+        TOID(struct LeafNode) leafNode = D_RO(ListHead)->head;
+
+        while (!TOID_IS_NULL(leafNode)) 
+        {
+            for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
+            {
+                if (D_RO(leafNode)->bitmap[i])
+                    std::cout << "(" << D_RO(leafNode)->kv_pairs[i].key << " | " << 
+                                        D_RO(leafNode)->kv_pairs[i].value << ")" << ", ";
+            }
+            std::cout << std::endl;
+            leafNode = D_RO(leafNode)->p_next;
+        }
+    }
+
+    static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg)
+    {
+        struct LeafNode *node = (struct LeafNode *)ptr;
+        struct argLeafNode *a = (struct argLeafNode *)arg;
+
+        node->isInnerNode = a->isInnerNode;
+        node->bitmap = a->bitmap;
+        memcpy(&(node->fingerprints), &(a->fingerprints), sizeof(a->fingerprints));
+        memcpy(&(node->kv_pairs), &(a->kv_pairs), sizeof(a->kv_pairs));
+        node->p_next = TOID_NULL(struct LeafNode);
+
+        pmemobj_persist(pop, node, a->size);
+
+        return 0;
+    }
+#endif  
+
+
 
 void FPtree::printFPTree(std::string prefix, BaseNode* root)
 {
@@ -273,13 +290,24 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 		LeafNode* node = reinterpret_cast<LeafNode*> (root);
         for (int64_t i = MAX_LEAF_SIZE-1; i >= 0; i--)
         {
-        	if (node->bitmap.test(i) == 1)
+        	if (node->bitmap[i] == 1)
         	{
         		std::cout << prefix << node->kv_pairs[i].key << "," << node->kv_pairs[i].value << std::endl;
         	}
         }
 	}
 }
+
+
+inline std::pair<uint64_t, bool> InnerNode::findChildIndex(uint64_t key)
+{
+    auto lower = std::lower_bound(std::begin(this->keys), std::begin(this->keys) + this->nKey, key);
+    uint64_t idx = lower - std::begin(this->keys);
+    if (idx < this->nKey && *lower == key)  
+        return std::make_pair(idx + 1, true);
+    return std::make_pair(idx, false);
+}
+
 
 LeafNode* FPtree::findLeaf(uint64_t key) 
 {
@@ -328,62 +356,129 @@ std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* child)
         if (cursor == child)
             return std::make_pair(parent, child_idx);
     }
+    // assert(false && "Function called with child == root!");
     return std::make_pair(nullptr, 0);
-}   
+}
 
-void FPtree::insertKVAndUpdateTree(LeafNode* reachedLeafNode, InnerNode* parentNode, struct KV kv, uint64_t prevPos = MAX_LEAF_SIZE)
+
+bool FPtree::find(uint64_t key)
+{
+    if (root != nullptr)
+    {
+        LeafNode* pLeafNode = findLeaf(key);
+        size_t key_hash = getOneByteHash(key);
+        for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
+        {
+            KV currKV = pLeafNode->kv_pairs[i];
+            if (pLeafNode->bitmap[i] == 1 &&
+                pLeafNode->fingerprints[i] == key_hash &&
+                currKV.key == key)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+    //return true;
+}
+
+
+void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
+                                            bool decision, struct KV kv, bool updateFunc = false, uint64_t prevPos = MAX_LEAF_SIZE)
 {
     uint64_t splitKey;
-    bool split_decision = reachedLeafNode->isFull(); 
-    LeafNode* insertNode = reachedLeafNode;
 
-    if (split_decision == true)
+    #ifdef PMEM
+        TOID(struct LeafNode) insertNode = pmemobj_oid(reachedLeafNode);
+    #else
+        LeafNode* insertNode = reachedLeafNode;
+    #endif
+
+    if (decision == true)
     {
-        splitKey = splitLeaf(reachedLeafNode);  // split and link two leaves
-        if (kv.key >= splitKey)     // select one leaf to insert
+        splitKey = splitLeaf(reachedLeafNode);       // split and link two leaves
+        if (kv.key >= splitKey)                      // select one leaf to insert
             insertNode = reachedLeafNode->p_next;
     }
 
     if constexpr (MAX_LEAF_SIZE == 1) 
     {
-        insertNode->bitmap.set(0, 0);
+        #ifdef PMEM
+            D_RW(insertNode)->bitmap.set(0, 0);
+        #else
+            insertNode->bitmap.set(0, 0);
+        #endif
         splitKey = std::max(kv.key, splitKey);
     }
 
-    insertNode->addKV(kv); 
-    if (prevPos != MAX_LEAF_SIZE)
-        insertNode->removeKVByIdx(prevPos);
+    #ifdef PMEM
+        uint64_t slot = findFirstZero(&insertNode);
+        D_RW(insertNode)->kv_pairs[slot] = kv; 
+        D_RW(insertNode)->fingerprints[slot] = getOneByteHash(kv.key);
+        pmemobj_persist(pop, &D_RO(insertNode)->kv_pairs[slot], sizeof(struct KV));
+        pmemobj_persist(pop, &D_RO(insertNode)->fingerprints[slot], SIZE_ONE_BYTE_HASH);
 
-    if (split_decision == true)
-    {
+        if (!updateFunc)
+        {
+            D_RW(insertNode)->bitmap.set(slot);
+        }
+        else 
+        {
+            std::bitset<MAX_LEAF_SIZE> tmpBitmap = D_RW(insertNode)->bitmap;
+            tmpBitmap.set(prevPos, 0); tmpBitmap.set(slot);
+            D_RW(insertNode)->bitmap = tmpBitmap;
+        }
+        pmemobj_persist(pop, &D_RO(insertNode)->bitmap, sizeof(D_RO(insertNode)->bitmap));
+    #else
+        insertNode->addKV(kv); 
+        if (prevPos != MAX_LEAF_SIZE)
+            insertNode->removeKVByIdx(prevPos);
+    #endif
+
+
+    if (decision == true)
+    {   
+        #ifdef PMEM
+            LeafNode* newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+        #else
+            LeafNode* newLeafNode = reachedLeafNode->p_next;
+        #endif
+
         if (root->isInnerNode == false)
         {
             root = new InnerNode();
-            reinterpret_cast<InnerNode*> (root)->addKey(0, splitKey, reachedLeafNode, false);
-            reinterpret_cast<InnerNode*> (root)->p_children[1] = reachedLeafNode->p_next;
+            reinterpret_cast<InnerNode*> (root)->nKey = 1;
+            reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
+            reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
+            reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
             return;
         }
-        if constexpr (MAX_INNER_SIZE != 1)
-            updateParents(splitKey, parentNode, reachedLeafNode->p_next);
-        else
+        if constexpr (MAX_INNER_SIZE != 1) 
+            updateParents(splitKey, parentNode, newLeafNode);
+        else // when inner node size equal to 1 
         {
             InnerNode* newInnerNode = new InnerNode();
-            newInnerNode->addKey(0, splitKey, reachedLeafNode, false);
-            newInnerNode->p_children[1] = reachedLeafNode->p_next;
+            newInnerNode->nKey = 1;
+            newInnerNode->keys[0] = splitKey;
+            newInnerNode->p_children[0] = reachedLeafNode;
+            //newInnerNode->p_children[1] = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+            newInnerNode->p_children[1] = newLeafNode;
             if (parentNode->keys[0] > splitKey)
                 parentNode->p_children[0] = newInnerNode;
             else
                 parentNode->p_children[1] = newInnerNode;
         }
     }
+
 }
+
 
 void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child)
 {
     if (parent->nKey < MAX_INNER_SIZE)
     {
         std::pair<uint64_t, bool> insert_pos = parent->findChildIndex(splitKey);
-        assert(insert_pos.second == false && "Exception: duplicate key index detected!");
+        //assert(insert_pos.second == false && "Exception: duplicate key index detected!");
         parent->addKey(insert_pos.first, splitKey, child);
     }
     else 
@@ -431,80 +526,148 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
     }
 }
 
-uint64_t FPtree::find(uint64_t key)
-{
-    if (root != nullptr)
-    {
-        LeafNode* pLeafNode = findLeaf(key);
-        size_t kv_idx = pLeafNode->findKVIndex(key);
-        if (kv_idx != MAX_LEAF_SIZE)
-            return pLeafNode->kv_pairs[kv_idx].value;
-    }
-    return 0;
-}
-
 
 bool FPtree::update(struct KV kv)
 {
-    assert(root != nullptr && "Exception: update attempt on empty tree!");
+    // assert(root != nullptr);
+
     std::pair<InnerNode*, LeafNode*> p = findLeafWithParent(kv.key);
     InnerNode* parentNode = p.first;
     LeafNode* reachedLeafNode = p.second;
 
     uint64_t prevPos = reachedLeafNode->findKVIndex(kv.key);
-    // if cannot find key
-    if (prevPos == MAX_LEAF_SIZE)
-        return false;
-    insertKVAndUpdateTree(reachedLeafNode, parentNode, kv, prevPos);
+    // assert(prevPos != MAX_LEAF_SIZE && "Exception: no key is find");
+    if (prevPos == MAX_LEAF_SIZE) return true;
+
+    bool decision = reachedLeafNode->isFull();
+
+    splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv, true, prevPos);
+
     return true;
 }
 
 
+
 bool FPtree::insert(struct KV kv) 
 {
-    if (root == nullptr) 
-    {
-        root = new LeafNode();
-        reinterpret_cast<LeafNode*> (root)->addKV(kv);
-        return true;
-    }
+    // std::cout << "\ninsert: " << kv.key << std::endl;
+
+    #ifdef PMEM
+        TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+        TOID(struct LeafNode) *dst = &D_RW(ListHead)->head;
+
+        if (TOID_IS_NULL(*dst)) 
+        {
+            struct argLeafNode args;
+            args.isInnerNode = false;
+            args.size = sizeof(struct LeafNode);
+            args.kv_pairs[0] = kv;
+            args.fingerprints[0] = getOneByteHash(kv.key);
+            args.bitmap.set(0);
+            args.lock = ATOMIC_VAR_INIT(false);
+
+            POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
+
+            D_RW(ListHead)->head = *dst; 
+            pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
+
+            this->root = (struct BaseNode *) pmemobj_direct((*dst).oid);
+
+            return true;
+        }
+    #else
+        if (root == nullptr) 
+        {
+            root = new LeafNode();
+            reinterpret_cast<LeafNode*> (root)->addKV(kv);
+            return true;
+        }
+    #endif
 
     std::pair<InnerNode*, LeafNode*> p = findLeafWithParent(kv.key);
     InnerNode* parentNode = p.first;
     LeafNode* reachedLeafNode = p.second;
 
     // return false if key already exists
-    if (reachedLeafNode->findKVIndex(kv.key) != MAX_LEAF_SIZE)
-        return false;
+    size_t key_hash = getOneByteHash(kv.key);
+    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
+    {
+        KV currKV = reachedLeafNode->kv_pairs[i];
+        if (reachedLeafNode->bitmap[i] == 1 &&
+            reachedLeafNode->fingerprints[i] == key_hash &&
+            currKV.key == kv.key)
+        {
+            return false;
+        }
+    }
 
-    insertKVAndUpdateTree(reachedLeafNode, parentNode, kv);
+    bool decision = reachedLeafNode->isFull();
+
+    splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv);
+
     return true;
 }
 
+
+
 uint64_t FPtree::splitLeaf(LeafNode* leaf)
 {
-    LeafNode* newLeafNode = new LeafNode(*leaf);
-    uint64_t splitKey = findSplitKey(leaf);
+    #ifdef PMEM
+        TOID(struct LeafNode) *dst = &(leaf->p_next);
+        TOID(struct LeafNode) nextLeafNode = leaf->p_next;
 
-    for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
-    {
-        if (newLeafNode->kv_pairs[i].key < splitKey)
-            newLeafNode->bitmap.set(i, 0);
-    }
+        // Copy the content of Leaf into NewLeaf
+        struct argLeafNode args;
+        args.isInnerNode = false;
+        args.size = sizeof(struct LeafNode);
+        memcpy(&(args.fingerprints), &(leaf->fingerprints), sizeof(leaf->fingerprints));
+        memcpy(&(args.kv_pairs), &(leaf->kv_pairs), sizeof(leaf->kv_pairs));
+        args.bitmap = leaf->bitmap;
+        args.lock.store(leaf->lock, std::memory_order_relaxed);
 
-    leaf->bitmap = newLeafNode->bitmap;
-    if constexpr (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
-    leaf->p_next = newLeafNode;
+        POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
 
+        uint64_t splitKey = findSplitKey(leaf);
+
+        for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
+        {
+            if (D_RO(*dst)->kv_pairs[i].key < splitKey)
+                D_RW(*dst)->bitmap.set(i, 0);
+        }
+        pmemobj_persist(pop, &D_RO(*dst)->bitmap, sizeof(D_RO(*dst)->bitmap));
+
+        leaf->bitmap = D_RO(*dst)->bitmap;
+        if (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
+        pmemobj_persist(pop, &leaf->bitmap, sizeof(leaf->bitmap));
+
+        D_RW(*dst)->p_next = nextLeafNode;
+        pmemobj_persist(pop, &D_RO(*dst)->p_next, sizeof(D_RO(*dst)->p_next));
+        // pmemobj_persist(pop, &leaf->p_next, sizeof(leaf->p_next));
+    #else
+        LeafNode* newLeafNode = new LeafNode(*leaf);
+        uint64_t splitKey = findSplitKey(leaf);
+
+        for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
+        {
+            if (newLeafNode->kv_pairs[i].key < splitKey)
+                newLeafNode->bitmap.set(i, 0);
+        }
+
+        leaf->bitmap = newLeafNode->bitmap;
+        if constexpr (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
+        leaf->p_next = newLeafNode;
+    #endif
+ 
     return splitKey;
 }
 
 
 uint64_t FPtree::findSplitKey(LeafNode* leaf)
 {
-    std::array<KV, MAX_LEAF_SIZE> tempArr = leaf->kv_pairs;
+    KV tempArr[MAX_LEAF_SIZE];
+    memcpy(&tempArr, &leaf->kv_pairs, sizeof(leaf->kv_pairs));
 
-    std::sort(tempArr.begin(), tempArr.end(), [] (const KV& kv1, const KV& kv2){
+    std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2){
             return kv1.key < kv2.key;
         });
 
@@ -514,13 +677,16 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     return splitKey;
 }
 
+
+
 bool FPtree::deleteKey(uint64_t key)
 {
+    // std::cout << "delete: " << key << std::endl;
+
     if (!root->isInnerNode)     // tree with root only
     {
         uint64_t idx = reinterpret_cast<LeafNode*> (root)->findKVIndex(key);
-        if (idx == MAX_LEAF_SIZE)
-        	return false;
+        if (idx == MAX_LEAF_SIZE) return false;
         reinterpret_cast<LeafNode*> (root)->removeKVByIdx(idx);
         return true;
     }
@@ -532,8 +698,7 @@ bool FPtree::deleteKey(uint64_t key)
     LeafNode* leaf = reinterpret_cast<LeafNode*>(parent->p_children[child_idx]);
 
     uint64_t idx = leaf->findKVIndex(key);
-    if (idx == MAX_LEAF_SIZE)
-        return false;
+    if (idx == MAX_LEAF_SIZE) return true;
 
     uint64_t value;
     if constexpr (MAX_INNER_SIZE == 1)
@@ -551,18 +716,41 @@ bool FPtree::deleteKey(uint64_t key)
                 std::pair<InnerNode*, uint64_t> p = findInnerNodeParent(parent);
                 p.first->p_children[p.second] = parent->p_children[(child_idx + 1) % 2];
                 if (erase_index)
-                    maxLeaf(indexNode->p_children[0])->p_next = leaf->p_next;
+                {
+                    #ifdef PMEM
+                        LeafNode* max_leaf  = maxLeaf(indexNode->p_children[0]);
+                        max_leaf->p_next = leaf->p_next;
+                        pmemobj_persist(pop, &max_leaf->p_next, sizeof(max_leaf)->p_next);
+                    #else
+                        maxLeaf(indexNode->p_children[0])->p_next = leaf->p_next;
+                    #endif
+                }
             }
             if (child_idx == 1) // deleting right child
-                maxLeaf(parent->p_children[0])->p_next = leaf->p_next;
+            {
+                #ifdef PMEM
+                    LeafNode* max_leaf  = maxLeaf(parent->p_children[0]);
+                    max_leaf->p_next = leaf->p_next;
+                    pmemobj_persist(pop, &max_leaf->p_next, sizeof(max_leaf)->p_next);
+                #else
+                    maxLeaf(parent->p_children[0])->p_next = leaf->p_next;
+                #endif
+            }
             parent->nKey = 0;
             delete parent;
-            delete leaf;
+
+            #ifdef PMEM
+                TOID(struct LeafNode) pmem_leaf = pmemobj_oid(leaf);
+                POBJ_FREE(&pmem_leaf);
+            #else
+                delete leaf; 
+            #endif
         }
         if (erase_index)
             indexNode->keys[0] = minKey(indexNode->p_children[1]);
         return true;
     }
+
 
     if (indexNode == nullptr)  // key does not appear in any innernode
     {
@@ -587,7 +775,6 @@ bool FPtree::deleteKey(uint64_t key)
     else    // key appears in inner node (above parent), it is the minimum key of right subtree. (leaf is left most child )
     {
         std::pair<uint64_t, bool> p = indexNode->findChildIndex(key);
-        assert(p.second == true && "Key not found in index node!");
         value = leaf->removeKVByIdx(idx);
         if (leaf->countKV() == 0 && !tryBorrowKey(parent, child_idx, child_idx+1)) // no kv left and cannot borrow from right sibling
         {
@@ -601,6 +788,7 @@ bool FPtree::deleteKey(uint64_t key)
     }
     return true;
 }
+
 
 void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t right_child_idx)
 {
@@ -628,11 +816,22 @@ void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t rig
         }
     }
     else    // merge leaves
-    {
+    { 
         LeafNode* left = reinterpret_cast<LeafNode*> (parent->p_children[left_child_idx]);
         LeafNode* right = reinterpret_cast<LeafNode*> (parent->p_children[right_child_idx]);
-        left->p_next = right->p_next;
-        delete right; right = nullptr;
+
+        #ifdef PMEM
+            TOID(struct LeafNode) pmem_left = pmemobj_oid(left);
+            TOID(struct LeafNode) pmem_right = pmemobj_oid(right);
+            D_RW(pmem_left)->p_next = D_RO(pmem_right)->p_next;
+            pmemobj_persist(pop, &D_RO(pmem_left)->p_next, sizeof(D_RO(pmem_left)->p_next));
+
+            POBJ_FREE(&pmem_right); right = nullptr;
+        #else
+            left->p_next = right->p_next;
+            delete right; right = nullptr;
+        #endif
+        
         if (left_child_idx != 0)
             parent->keys[left_child_idx-1] = left->minKV().key;
         parent->removeKey(left_child_idx);
@@ -662,7 +861,7 @@ void FPtree::mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t rig
 
 bool FPtree::tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx)
 {
-    assert(receiver_idx == sender_idx + 1 || receiver_idx + 1 == sender_idx && "Sender and receiver are not immediate siblings!");
+    // assert(receiver_idx == sender_idx + 1 || receiver_idx + 1 == sender_idx && "Sender and receiver are not immediate siblings!");
     if (parent->p_children[0]->isInnerNode)    // inner nodes
     {
         InnerNode* sender = reinterpret_cast<InnerNode*> (parent->p_children[sender_idx]);
@@ -709,6 +908,7 @@ bool FPtree::tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sen
     return true;
 }
 
+
 uint64_t FPtree::minKey(BaseNode* node)
 {
     while (node->isInnerNode)
@@ -723,120 +923,136 @@ LeafNode* FPtree::minLeaf(BaseNode* node)
     return reinterpret_cast<LeafNode*> (node);
 }
 
-LeafNode* FPtree::maxLeaf(BaseNode* node)
+
+void FPtree::sortKV()
 {
-    while(node->isInnerNode)
-        node = reinterpret_cast<InnerNode*> (node)->p_children[reinterpret_cast<InnerNode*> (node)->nKey];
-    return reinterpret_cast<LeafNode*> (node);
+    uint64_t j = 0;
+    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++)
+        if (this->current_leaf->bitmap[i])
+            this->volatile_current_kv[j++] = this->current_leaf->kv_pairs[i];
+    
+    this->size_volatile_kv = j;
+
+    std::sort(std::begin(this->volatile_current_kv), std::begin(this->volatile_current_kv) + this->size_volatile_kv, 
+    [] (const KV& kv1, const KV& kv2){
+        return kv1.key < kv2.key;
+    });
 }
+
 
 void FPtree::ScanInitialize(uint64_t key)
 {
     if (!root)
         return;
-    LeafNode* leaf = findLeaf(key);
-    while (leaf != nullptr)
+
+    // std::cout << "scan: " << key << std::endl;
+
+    this->current_leaf = root->isInnerNode? findLeaf(key) : reinterpret_cast<LeafNode*> (root);
+    while (this->current_leaf != nullptr)
     {
-        leaf_cpy = *leaf;
-        leaf_cpy.sortKV(false);
-        uint64_t kv_count = leaf_cpy.findFirstZero();
-        for (uint64_t i = 0; i < kv_count; i++)
+        this->sortKV();
+        for (uint64_t i = 0; i < this->size_volatile_kv; i++)
         {
-            if (leaf_cpy.kv_pairs[i].key >= key)
+            if (this->volatile_current_kv[i].key >= key)
             {
-                bitmap_idx = i;
+                this->bitmap_idx = i;
                 return;
             }
         }
-        leaf = leaf->p_next;
-    }   
+        #ifdef PMEM
+            this->current_leaf = (struct LeafNode *) pmemobj_direct((this->current_leaf->p_next).oid);
+        #else
+            this->current_leaf = this->current_leaf->p_next;
+        #endif
+    }
 }
+
 
 KV FPtree::ScanNext()
 {
-    KV kv = leaf_cpy.kv_pairs[bitmap_idx ++];
-    if (bitmap_idx == MAX_LEAF_SIZE || leaf_cpy.bitmap.test(bitmap_idx) == 0)  // scan next leaf
+    // assert(this->current_leaf != nullptr && "Current scan node was deleted!");
+    struct KV kv = this->volatile_current_kv[this->bitmap_idx++];
+    if (this->bitmap_idx == this->size_volatile_kv)
     {
-        if (leaf_cpy.p_next == nullptr) // no more leaves, scan complete
+        #ifdef PMEM
+            this->current_leaf = (struct LeafNode *) pmemobj_direct((this->current_leaf->p_next).oid);
+        #else
+            this->current_leaf = this->current_leaf->p_next;
+        #endif
+        if (this->current_leaf != nullptr)
         {
-            bitmap_idx = MAX_LEAF_SIZE;
-            return kv;
+            this->sortKV();
+            this->bitmap_idx = 0;
         }
-        leaf_cpy = *leaf_cpy.p_next;
-        leaf_cpy.sortKV(false);
-        bitmap_idx = 0;
     }
     return kv;
 }
 
+
 bool FPtree::ScanComplete()
 {
-    return this->bitmap_idx == MAX_LEAF_SIZE;
+    return this->current_leaf == nullptr;
 }
 
 
-int main() 
+
+int main(int argc, char *argv[]) 
 {
     FPtree fptree;
 
-    size_t insertLength = 25;
-    size_t randList[insertLength];
-    // srand(time(NULL));
-    srand(1);
-    // for (size_t i = 0; i < insertLength; i++)
-    //     randList[i] = i+1;
-    
-    // int size = sizeof(randList) / sizeof(randList[0]);
+    // for (uint64_t i = 0; i < 10000000; i++)
+    //     fptree.insert(KV(i, i));
 
-    // std::random_shuffle(randList, randList+size);
+    // for (uint64_t i = 0; i < 1000000; i++)
+    //     fptree.deleteKey(i);
 
-    // for (size_t i = 0; i < insertLength; i++)
-    //     cout << randList[i] << endl;
-
-    // for (size_t i = 0; i < insertLength; i++)
-    //     fptree.insert(KV(randList[i], randList[i]));
-
-    // fptree.insert(KV(16, 10));
-    // fptree.insert(KV(15, 10));
-    // fptree.insert(KV(14, 10));
-    // fptree.insert(KV(13, 10));
-    // fptree.insert(KV(12, 10));
-    // fptree.insert(KV(11, 10));
-    // fptree.insert(KV(10, 10));
-    // fptree.insert(KV(9, 6));
-    // fptree.insert(KV(8, 6));
-    // fptree.insert(KV(7, 6));
-    // fptree.insert(KV(6, 6));
-    // fptree.insert(KV(5, 6));
-    // fptree.insert(KV(4, 6));
-    // fptree.insert(KV(3, 6));
-    // fptree.insert(KV(2, 6));
-    // fptree.insert(KV(1, 6));
-
-    // fptree.displayTree(fptree.getRoot());
-
+    // for (uint64_t i = 0; i < 1000000-1; i++) 
+    // {
+    //     fptree.ScanInitialize(i);
+    //     fptree.ScanNext();
+    // }
     // fptree.printFPTree("├──", fptree.getRoot());
 
-    // cout << "find: " << fptree.find(9) << endl;
-    // cout << "find: " << fptree.find(2) << endl;
-    // cout << "find: " << fptree.find(3) << endl;
-    // cout << "find: " << fptree.find(4) << endl;
+    #ifdef PMEM
+        const char* command = argv[1];
+        if (command != NULL && strcmp(command, "show") == 0)
+        {  
+            showList();
+            return 0;
+        }
+    #endif
 
-
-
-    uint64_t key;
-    while (true){
-        std::cout << "\nEnter the key to insert or delete: "; 
+    int64_t key;
+    uint64_t value;
+    while (true)
+    {
+        std::cout << "\nEnter the key to insert, delete or update (-1): "; 
         std::cin >> key;
         std::cout << std::endl;
         if (key == 0)
             break;
         else if (fptree.find(key) != 0)
             fptree.deleteKey(key);
+        else if (key == -1)
+        {
+            std::cout << "\nEnter the key to update: ";
+            std::cin >> key;
+            std::cout << "\nEnter the value to update: ";
+            std::cin >> value;
+            fptree.update(KV(key, value));
+        }
         else
+        {
             fptree.insert(KV(key, key));
+        }
         fptree.printFPTree("├──", fptree.getRoot());
+        #ifdef PMEM
+            std::cout << std::endl;
+            std::cout << "show list: " << std::endl;
+            showList();
+        #endif
     }
+
 
     std::cout << "\nEnter the key to initialize scan: "; 
     std::cin >> key;
@@ -853,96 +1069,3 @@ int main()
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-// if (root->isInnerNode == false && root->nKey < MAX_nKeys)
-// {
-//     size_t slot = reinterpret_cast<LeafNode*> (root)->findFirstZero();
-//     root->keys[slot] = kv.key;
-//     reinterpret_cast<LeafNode*> (root)->bitmap[slot] = 1;
-//     reinterpret_cast<LeafNode*> (root)->fingerprints[slot] = getOneByteHash(kv.key);
-//     reinterpret_cast<LeafNode*> (root)->kv_pairs[slot] = kv;
-//     root->nKey++;
-
-//     if (root->nKey == MAX_nKeys)
-//     {
-//         uint64_t splitKey = splitLeaf(reinterpret_cast<LeafNode*> (root));
-//         LeafNode* tempRootLeafPointer = reinterpret_cast<LeafNode*> (root);
-        
-//         root = new InnerNode();
-//         reinterpret_cast<InnerNode*> (root)->isInnerNode = true;
-//         reinterpret_cast<InnerNode*> (root)->nKey = 1;
-//         reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
-//         reinterpret_cast<InnerNode*> (root)->p_children[0] = tempRootLeafPointer;
-//         reinterpret_cast<InnerNode*> (root)->p_children[1] = tempRootLeafPointer->p_next;
-//     }
-// }
-
-
-
-// if (root->nKey == MAX_nKeys)
-// {
-//     size_t splitPosition = floor(root->nKey / 2);
-//     uint64_t middleKey = root->keys[splitPosition];
-    
-//     LeafNode* rootLeafNode = new LeafNode();
-//     rootLeafNode->nKey = splitPosition;
-//     for (size_t i = 0; i < splitPosition; i++)
-//     {
-//         rootLeafNode->keys[i] = root->keys[i];
-//         rootLeafNode->bitmap[i] = reinterpret_cast<LeafNode*> (root)->bitmap[i];
-//         rootLeafNode->fingerprints[i] = reinterpret_cast<LeafNode*> (root)->fingerprints[i];
-//         rootLeafNode->kv_pairs[i] = reinterpret_cast<LeafNode*> (root)->kv_pairs[i];
-//     }
-
-//     LeafNode* newLeafNode = new LeafNode();
-//     newLeafNode->nKey = splitPosition % 2 == 0 ? splitPosition : (splitPosition + 1);
-//     for (size_t i = splitPosition; i < root->nKey; i++)
-//     {
-//         newLeafNode->keys[i - splitPosition] = root->keys[i];
-//         newLeafNode->bitmap[i - splitPosition] = reinterpret_cast<LeafNode*> (root)->bitmap[i];
-//         newLeafNode->fingerprints[i - splitPosition] = reinterpret_cast<LeafNode*> (root)->fingerprints[i];
-//         newLeafNode->kv_pairs[i - splitPosition] = reinterpret_cast<LeafNode*> (root)->kv_pairs[i];
-//     }
-
-//     free(root);
-
-//     root = new InnerNode();
-//     reinterpret_cast<InnerNode*> (root)->isInnerNode = true;
-//     reinterpret_cast<InnerNode*> (root)->nKey = 1;
-//     reinterpret_cast<InnerNode*> (root)->keys[0] = middleKey;
-//     reinterpret_cast<InnerNode*> (root)->p_children[0] = rootLeafNode;
-//     reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
-
-//     rootLeafNode->p_next = newLeafNode;
-// }
-
-// return 1;
-
-
-// for (size_t i = 0; i < newLeafNode->nKey; i++)
-// {
-//     cout << "splitLeaf newLeafNode bitmap: " << newLeafNode->bitmap[i] << endl;
-// }
-
-
-// for (int i = 0; i < MAX_nKeys; i++)
-// {
-//     cout << "tempRootLeafPointer bitmap: " << tempRootLeafPointer->bitmap[i] << endl;
-//     cout << "newLeaf bitmap: " << tempRootLeafPointer->p_next->bitmap[i] << endl;
-// }
-
-
-
-// cout << "key: " << key << endl;
-// cout << "currKey: " << currKey << endl;
-// cout << "pLeafNode->bitmap[i]: " << pLeafNode->bitmap[i] << endl;
