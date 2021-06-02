@@ -997,75 +997,126 @@ bool FPtree::ScanComplete()
 
 
 
+// int main(int argc, char *argv[]) 
+// {
+//     FPtree fptree;
+
+//     #ifdef PMEM
+//         const char* command = argv[1];
+//         if (command != NULL && strcmp(command, "show") == 0)
+//         {  
+//             showList();
+//             return 0;
+//         }
+//     #endif
+
+//     int64_t key;
+//     uint64_t value;
+//     while (true)
+//     {
+//         std::cout << "\nEnter the key to insert, delete or update (-1): "; 
+//         std::cin >> key;
+//         std::cout << std::endl;
+//         if (key == 0)
+//             break;
+//         else if (fptree.find(key) != 0)
+//             fptree.deleteKey(key);
+//         else if (key == -1)
+//         {
+//             std::cout << "\nEnter the key to update: ";
+//             std::cin >> key;
+//             std::cout << "\nEnter the value to update: ";
+//             std::cin >> value;
+//             fptree.update(KV(key, value));
+//         }
+//         else
+//         {
+//             fptree.insert(KV(key, key));
+//         }
+//         fptree.printFPTree("├──", fptree.getRoot());
+//         #ifdef PMEM
+//             std::cout << std::endl;
+//             std::cout << "show list: " << std::endl;
+//             showList();
+//         #endif
+//     }
+
+
+//     std::cout << "\nEnter the key to initialize scan: "; 
+//     std::cin >> key;
+//     std::cout << std::endl;
+//     fptree.ScanInitialize(key);
+//     while(!fptree.ScanComplete())
+//     {
+//         KV kv = fptree.ScanNext();
+//         std::cout << kv.key << "," << kv.value << " ";
+//     }
+//     std::cout << std::endl;
+// }
+
+
+/*
+    Use case
+
+    uint64_t tick = rdtsc();
+    Put program between 
+    std::cout << rdtsc() - tick << std::endl;
+*/
+uint64_t rdtsc(){
+    unsigned int lo,hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+
 int main(int argc, char *argv[]) 
-{
+{   
+    uint64_t NUM_OPS = 10000000;
+    double elapsed;
+
+    /* Key value generator */
+    std::independent_bits_engine<std::default_random_engine, 64, uint64_t> rbe;
+    std::vector<uint64_t> keys(NUM_OPS);
+    std::generate(begin(keys), end(keys), std::ref(rbe));
+    
+    std::vector<uint64_t> values(NUM_OPS);
+    std::generate(begin(values), end(values), std::ref(rbe));
+
+    /* Loading phase */
     FPtree fptree;
+    for (uint64_t i = 0; i < NUM_OPS; i++)
+        fptree.insert(KV(keys[i], values[i]));
 
-    // for (uint64_t i = 0; i < 10000000; i++)
-    //     fptree.insert(KV(i, i));
+    /* Testing phase */
+    auto t1 = std::chrono::high_resolution_clock::now();
+    for (uint64_t i = 0; i < NUM_OPS; i++)
+        fptree.find(keys[i]);
+    auto t2 = std::chrono::high_resolution_clock::now();
 
-    // for (uint64_t i = 0; i < 1000000; i++)
-    //     fptree.deleteKey(i);
+    uint64_t tick = rdtsc();
+    for (uint64_t i = 0; i < NUM_OPS; i++)
+        fptree.find(keys[i]);
+    uint64_t cycles = rdtsc() - tick;
 
-    // for (uint64_t i = 0; i < 1000000-1; i++) 
-    // {
-    //     fptree.ScanInitialize(i);
-    //     fptree.ScanNext();
-    // }
-    // fptree.printFPTree("├──", fptree.getRoot());
+    /* Getting number of milliseconds as a double */
+    std::chrono::duration<double, std::milli> ms_double = t2 - t1;
 
-    #ifdef PMEM
-        const char* command = argv[1];
-        if (command != NULL && strcmp(command, "show") == 0)
-        {  
-            showList();
-            return 0;
-        }
-    #endif
-
-    int64_t key;
-    uint64_t value;
-    while (true)
-    {
-        std::cout << "\nEnter the key to insert, delete or update (-1): "; 
-        std::cin >> key;
-        std::cout << std::endl;
-        if (key == 0)
-            break;
-        else if (fptree.find(key) != 0)
-            fptree.deleteKey(key);
-        else if (key == -1)
-        {
-            std::cout << "\nEnter the key to update: ";
-            std::cin >> key;
-            std::cout << "\nEnter the value to update: ";
-            std::cin >> value;
-            fptree.update(KV(key, value));
-        }
-        else
-        {
-            fptree.insert(KV(key, key));
-        }
-        fptree.printFPTree("├──", fptree.getRoot());
-        #ifdef PMEM
-            std::cout << std::endl;
-            std::cout << "show list: " << std::endl;
-            showList();
-        #endif
-    }
-
-
-    std::cout << "\nEnter the key to initialize scan: "; 
-    std::cin >> key;
-    std::cout << std::endl;
-    fptree.ScanInitialize(key);
-    while(!fptree.ScanComplete())
-    {
-        KV kv = fptree.ScanNext();
-        std::cout << kv.key << "," << kv.value << " ";
-    }
-    std::cout << std::endl;
+    /* Get stats */
+    elapsed = ms_double.count();
+    std::cout << "\tRun time: " << elapsed << " milliseconds" << std::endl;
+    std::cout << "\tThroughput: " << std::fixed << NUM_OPS / ( (float)elapsed / 1000 )
+            << " ops/s" << std::endl;
+    std::cout << "\tCPU cycles per operation: " << cycles / NUM_OPS << " cycles/op" << std::endl;
 }
 
 
 
+// for (uint64_t i = 0; i < 1000000; i++)
+//     fptree.deleteKey(i);
+
+
+// for (uint64_t i = 0; i < 1000000-1; i++) 
+// {
+//     fptree.ScanInitialize(i);
+//     fptree.ScanNext();
+// }

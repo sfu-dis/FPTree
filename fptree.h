@@ -19,12 +19,18 @@
 #include <queue> 
 #include <string.h> 
 #include <limits>
+#include <chrono>
+#include <vector>
+#include <random>
+#include <climits>
+#include <functional>
 #include "immintrin.h"
 
 
 #pragma once
 
 #define TEST_MODE 0
+//#define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
@@ -39,12 +45,10 @@
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
-//#define PMEM 
-
 #ifdef PMEM
     #include <libpmemobj.h>
 
-    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 8) * 10)  /* 8 * 10 MiB */
+    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 8) * 100)  /* 8 * 10 MiB */
 
     POBJ_LAYOUT_BEGIN(List);
     POBJ_LAYOUT_ROOT(List, struct List);
