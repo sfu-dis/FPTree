@@ -107,6 +107,10 @@ inline uint64_t LeafNode::findFirstZero()
 {
     std::bitset<MAX_LEAF_SIZE> b = bitmap;
     return b.flip()._Find_first();
+    // bitmap.flip();
+    // size_t firstZero = bitmap._Find_first();
+    // bitmap.flip();
+    // return firstZero;
 }
 
 inline void LeafNode::addKV(struct KV kv)
@@ -156,7 +160,7 @@ uint64_t LeafNode::findKVIndex(uint64_t key)
 
     size_t counter = 0;
     while (mask != 0) {
-        if (mask & 1 && this->bitmap[counter] && key == this->kv_pairs[counter].key)
+        if (mask & 1 && this->bitmap.test(counter) && key == this->kv_pairs[counter].key)
             return counter;
         mask >>= 1;
         counter ++;
@@ -168,7 +172,7 @@ KV LeafNode::minKV(bool remove = false)
 {
     uint64_t min_key = -1, min_key_idx = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        if (this->bitmap[i] && this->kv_pairs[i].key <= min_key)
+        if (this->bitmap.test(i) && this->kv_pairs[i].key <= min_key)
         {
             min_key = this->kv_pairs[i].key;
             min_key_idx = i;
@@ -182,7 +186,7 @@ KV LeafNode::maxKV(bool remove = false)
 {
     uint64_t max_key = 0, max_key_idx = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
-        if (this->bitmap[i] && this->kv_pairs[i].key >= max_key)
+        if (this->bitmap.test(i) && this->kv_pairs[i].key >= max_key)
         {
             max_key = this->kv_pairs[i].key;
             max_key_idx = i;
@@ -264,7 +268,7 @@ inline static uint8_t getOneByteHash(uint64_t key)
         {
             for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
             {
-                if (D_RO(leafNode)->bitmap[i])
+                if (D_RO(leafNode)->bitmap.test(i))
                     std::cout << "(" << D_RO(leafNode)->kv_pairs[i].key << " | " << 
                                         D_RO(leafNode)->kv_pairs[i].value << ")" << ", ";
             }
@@ -308,7 +312,7 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 		LeafNode* node = reinterpret_cast<LeafNode*> (root);
         for (int64_t i = MAX_LEAF_SIZE-1; i >= 0; i--)
         {
-        	if (node->bitmap[i] == 1)
+        	if (node->bitmap.test(i) == 1)
         	{
         		std::cout << prefix << node->kv_pairs[i].key << "," << node->kv_pairs[i].value << std::endl;
         	}
@@ -929,7 +933,7 @@ void FPtree::sortKV()
 {
     uint64_t j = 0;
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++)
-        if (this->current_leaf->bitmap[i])
+        if (this->current_leaf->bitmap.test(i))
             this->volatile_current_kv[j++] = this->current_leaf->kv_pairs[i];
     
     this->size_volatile_kv = j;

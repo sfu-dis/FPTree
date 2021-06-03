@@ -25,15 +25,15 @@
 #include <climits>
 #include <functional>
 #include "immintrin.h"
-
+#include "bitset.h"
 
 #pragma once
 
-#define TEST_MODE 0
+#define TEST_MODE 1
 //#define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
-#if TEST_MODE == 0
+#if TEST_MODE == 1
     #define MAX_INNER_SIZE 1024
     #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
@@ -138,6 +138,7 @@ public:
 struct LeafNode : BaseNode
 {
     std::bitset<MAX_LEAF_SIZE> bitmap;
+    // Bitset bitmap;
     
     #ifdef PMEM
         TOID(struct LeafNode) p_next;
