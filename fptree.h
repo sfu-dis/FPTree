@@ -68,7 +68,8 @@ static uint8_t getOneByteHash(uint64_t key);
 #endif
 
 
-struct KV {
+struct KV 
+{
     uint64_t key;
     uint64_t value;
 
@@ -185,7 +186,8 @@ public:
 
 
 #ifdef PMEM
-    struct List {
+    struct List 
+    {
         TOID(struct LeafNode) head;
     };
 #endif
