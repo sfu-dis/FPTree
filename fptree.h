@@ -30,7 +30,7 @@
 #pragma once
 
 #define TEST_MODE 1
-//#define PMEM 
+// #define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 1
@@ -193,6 +193,33 @@ public:
     };
 #endif
 
+
+struct Stack 
+{
+public:
+    static const uint64_t kMaxNodes = 100;
+    InnerNode* innerNodes[kMaxNodes];
+    uint64_t num_nodes;
+
+    Stack() : num_nodes(0) {}
+    ~Stack() { num_nodes = 0; }
+
+    inline void push(InnerNode* node) 
+    {
+        assert(num_nodes < kMaxNodes && "Error: exceed max stack size");
+        this->innerNodes[num_nodes++] = node;
+    }
+
+    inline InnerNode* pop() { return num_nodes == 0 ? nullptr : this->innerNodes[--num_nodes]; }
+
+    inline bool isEmpty() { return num_nodes == 0; }
+
+    inline InnerNode* top() { return num_nodes == 0 ? nullptr : this->innerNodes[num_nodes - 1]; }
+
+    inline void clear() { num_nodes = 0; }
+};
+
+thread_local Stack stack_innerNodes;
 
 
 struct FPtree 

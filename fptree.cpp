@@ -107,6 +107,7 @@ inline uint64_t LeafNode::findFirstZero()
 {
     std::bitset<MAX_LEAF_SIZE> b = bitmap;
     return b.flip()._Find_first();
+
     // bitmap.flip();
     // size_t firstZero = bitmap._Find_first();
     // bitmap.flip();
@@ -356,11 +357,13 @@ std::tuple<InnerNode*, InnerNode*, uint64_t> FPtree::findInnerAndLeafWithParent(
     while (cursor->isInnerNode == true) 
     {
         parentNode = cursor;
+        stack_innerNodes.push(parentNode);
         p = cursor->findChildIndex(key);
         if (p.second)
             indexNode = cursor;
         cursor = reinterpret_cast<InnerNode*> (cursor->p_children[p.first]);
     }
+    stack_innerNodes.pop();
     return std::make_tuple(indexNode, parentNode, p.first);
 }
 
@@ -474,7 +477,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             newInnerNode->nKey = 1;
             newInnerNode->keys[0] = splitKey;
             newInnerNode->p_children[0] = reachedLeafNode;
-            //newInnerNode->p_children[1] = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
             newInnerNode->p_children[1] = newLeafNode;
             if (parentNode->keys[0] > splitKey)
                 parentNode->p_children[0] = newInnerNode;
@@ -482,7 +484,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 parentNode->p_children[1] = newInnerNode;
         }
     }
-
 }
 
 
@@ -535,7 +536,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
             reinterpret_cast<InnerNode*> (root)->p_children[1] = newInnerNode;
             return;
         }
-        updateParents(splitKey, findInnerNodeParent(parent).first, newInnerNode);
+        updateParents(splitKey, stack_innerNodes.pop(), newInnerNode);
     }
 }
 
@@ -604,11 +605,16 @@ bool FPtree::insert(struct KV kv)
     // return false if key already exists
     uint64_t idx = reachedLeafNode->findKVIndex(kv.key);
     if (idx != MAX_LEAF_SIZE)
+    {
+        stack_innerNodes.clear();
         return false;
+    }
 
     bool decision = reachedLeafNode->isFull();
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv);
+
+    stack_innerNodes.clear();
 
     return true;
 }
@@ -1023,8 +1029,8 @@ bool FPtree::ScanComplete()
 //         std::cout << std::endl;
 //         if (key == 0)
 //             break;
-//         else if (fptree.find(key) != 0)
-//             fptree.deleteKey(key);
+//         // else if (fptree.find(key) != 0)
+//         //     fptree.deleteKey(key);
 //         else if (key == -1)
 //         {
 //             std::cout << "\nEnter the key to update: ";
@@ -1091,16 +1097,20 @@ int main(int argc, char *argv[])
     for (uint64_t i = 0; i < NUM_OPS; i++)
         fptree.insert(KV(keys[i], values[i]));
 
+    // std::cout << "enter: ";
+    // int a;
+    // std::cin >> a;
+
     /* Testing phase */
     auto t1 = std::chrono::high_resolution_clock::now();
     for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.find(keys[i]);
+        fptree.insert(KV(keys[i], values[i]));
     auto t2 = std::chrono::high_resolution_clock::now();
 
-    uint64_t tick = rdtsc();
-    for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.find(keys[i]);
-    uint64_t cycles = rdtsc() - tick;
+    // uint64_t tick = rdtsc();
+    // for (uint64_t i = 0; i < NUM_OPS; i++)
+    //     fptree.insert(KV(keys[i], values[i]));
+    // uint64_t cycles = rdtsc() - tick;
 
     /* Getting number of milliseconds as a double */
     std::chrono::duration<double, std::milli> ms_double = t2 - t1;
@@ -1110,17 +1120,49 @@ int main(int argc, char *argv[])
     std::cout << "\tRun time: " << elapsed << " milliseconds" << std::endl;
     std::cout << "\tThroughput: " << std::fixed << NUM_OPS / ( (float)elapsed / 1000 )
             << " ops/s" << std::endl;
-    std::cout << "\tCPU cycles per operation: " << cycles / NUM_OPS << " cycles/op" << std::endl;
+    // std::cout << "\tCPU cycles per operation: " << cycles / NUM_OPS << " cycles/op" << std::endl;
 }
 
 
 
-// for (uint64_t i = 0; i < 1000000; i++)
-//     fptree.deleteKey(i);
 
 
-// for (uint64_t i = 0; i < 1000000-1; i++) 
-// {
-//     fptree.ScanInitialize(i);
-//     fptree.ScanNext();
-// }
+
+/*
+for (uint64_t i = 0; i < 1000000; i++)
+    fptree.deleteKey(i);
+
+
+for (uint64_t i = 0; i < 1000000-1; i++) 
+{
+    fptree.ScanInitialize(i);
+    fptree.ScanNext();
+}
+
+
+std::cout << "Print findInnerNodeParent(parent).first: " << std::endl;
+InnerNode* tmp = findInnerNodeParent(parent).first;
+for (int i = 0; i < tmp->nKey; i++) 
+    std::cout << tmp->keys[i] << " ";
+std::cout << "tmp:" << tmp << "\n";
+std::cout << "num_nodes:" << stack_innerNodes.num_nodes << std::endl;
+std::cout << "stack_innerNodes.pop():" << stack_innerNodes.pop() << "\n\n";
+updateParents(splitKey, tmp, newInnerNode);
+stack_innerNodes.pop();
+updateParents(splitKey, findInnerNodeParent(parent).first, newInnerNode);
+
+inline void printStack() 
+{
+    std::cout << "Print stack:" << std::endl;
+    if (num_nodes != 0) 
+    {
+        for (size_t i = num_nodes - 1; i >= 0; i--) 
+        {
+            for (size_t j = 0; j < this->innerNodes[i]->nKey; j++)
+            std::cout << this->innerNodes[i]->keys[j] << " ";
+            std::cout << "\n";
+        }
+        std::cout << "\n\n";
+    }
+}
+*/

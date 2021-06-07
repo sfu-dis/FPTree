@@ -84,8 +84,6 @@ public:
       size_t count() {
         size_t count = 0, i, j;
         unsigned char c;
-        // std::cout << "iter" << iter << std::endl;
-        // std::cout << "offset_bit" << iter << std::endl;
         for (i = 0; i < iter; i++) {
           c = bits[i];
           while (c != 0) {
