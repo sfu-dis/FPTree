@@ -136,7 +136,7 @@ inline uint64_t LeafNode::removeKVByIdx(uint64_t pos)
     return this->kv_pairs[pos].value;
 }
 
-uint64_t LeafNode::findKVIndex(uint64_t key)
+inline uint64_t LeafNode::findKVIndex(uint64_t key)
 {
     size_t key_hash = getOneByteHash(key);
 
@@ -299,26 +299,26 @@ inline static uint8_t getOneByteHash(uint64_t key)
 
 void FPtree::printFPTree(std::string prefix, BaseNode* root)
 {
-	if (root->isInnerNode) {
-		InnerNode* node = reinterpret_cast<InnerNode*> (root);
-		printFPTree("    " + prefix, node->p_children[node->nKey]);
+    if (root->isInnerNode) {
+        InnerNode* node = reinterpret_cast<InnerNode*> (root);
+        printFPTree("    " + prefix, node->p_children[node->nKey]);
         for (int64_t i = node->nKey-1; i >= 0; i--)
         {
-        	std::cout << prefix << node->keys[i] << std::endl;
+            std::cout << prefix << node->keys[i] << std::endl;
             printFPTree("    " + prefix, node->p_children[i]);
         } 
-	}
-	else
-	{
-		LeafNode* node = reinterpret_cast<LeafNode*> (root);
+    }
+    else
+    {
+        LeafNode* node = reinterpret_cast<LeafNode*> (root);
         for (int64_t i = MAX_LEAF_SIZE-1; i >= 0; i--)
         {
-        	if (node->bitmap.test(i) == 1)
-        	{
-        		std::cout << prefix << node->kv_pairs[i].key << "," << node->kv_pairs[i].value << std::endl;
-        	}
+            if (node->bitmap.test(i) == 1)
+            {
+                std::cout << prefix << node->kv_pairs[i].key << "," << node->kv_pairs[i].value << std::endl;
+            }
         }
-	}
+    }
 }
 
 
@@ -337,7 +337,24 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
     return findLeafWithParent(key).second;
 }
 
-std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
+inline std::pair<InnerNode*, LeafNode*> FPtree::findAndPushInnerNodes(uint64_t key)
+{
+    if (!root->isInnerNode)
+        return std::make_pair(nullptr, reinterpret_cast<LeafNode*> (root));
+    InnerNode* parentNode = nullptr;
+    std::pair<uint64_t, bool> p;
+    InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
+    while (cursor->isInnerNode == true) 
+    {
+        parentNode = cursor;
+        stack_innerNodes.push(parentNode);
+        p = cursor->findChildIndex(key);
+        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[p.first]);
+    }
+    return std::make_pair(stack_innerNodes.pop(), reinterpret_cast<LeafNode*> (parentNode->p_children[p.first]));
+}
+
+inline std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
 {
     if (!root->isInnerNode)
     {
@@ -348,7 +365,7 @@ std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
     return std::make_pair(parent, reinterpret_cast<LeafNode*> (parent->p_children[std::get<2>(nodes)]));
 }
 
-std::tuple<InnerNode*, InnerNode*, uint64_t> FPtree::findInnerAndLeafWithParent(uint64_t key)
+inline std::tuple<InnerNode*, InnerNode*, uint64_t> FPtree::findInnerAndLeafWithParent(uint64_t key)
 {
     InnerNode* parentNode, *indexNode = nullptr;
     std::pair<uint64_t, bool> p;
@@ -357,17 +374,15 @@ std::tuple<InnerNode*, InnerNode*, uint64_t> FPtree::findInnerAndLeafWithParent(
     while (cursor->isInnerNode == true) 
     {
         parentNode = cursor;
-        stack_innerNodes.push(parentNode);
         p = cursor->findChildIndex(key);
         if (p.second)
             indexNode = cursor;
         cursor = reinterpret_cast<InnerNode*> (cursor->p_children[p.first]);
     }
-    stack_innerNodes.pop();
     return std::make_tuple(indexNode, parentNode, p.first);
 }
 
-std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* child)
+inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* child)
 {
     InnerNode* parent;
     InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
@@ -386,17 +401,58 @@ std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* child)
 }
 
 
+// uint64_t FPtree::find(uint64_t key)
+// {
+//     while (true)
+//     {
+//         unsigned status;
+//         if ((status = _xbegin ()) == _XBEGIN_STARTED)
+//         {
+//             tbb::speculative_spin_mutex::scoped_lock lock(speculative_lock);
+//             LeafNode* pLeafNode = findLeaf(key);
+//             uint64_t idx = pLeafNode->findKVIndex(key);
+//             tbb::speculative_spin_mutex::scoped_lock unlock(speculative_lock);
+//             _xend();
+//             return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+//         }
+//         else 
+//         {
+//             tbb::speculative_spin_mutex::scoped_lock lock(speculative_lock);
+//             std::cout << "... non transactional fallback path..." << std::endl;
+//             // ... non transactional fallback path...
+//         }
+//     }
+// }
+
 uint64_t FPtree::find(uint64_t key)
 {
-    if (root != nullptr)
-    {
-        LeafNode* pLeafNode = findLeaf(key);
-        uint64_t idx = pLeafNode->findKVIndex(key);
-        if (idx != MAX_LEAF_SIZE)
-            return pLeafNode->kv_pairs[idx].value;
-    }
-    return 0;
+    LeafNode* pLeafNode;
+    uint64_t idx;
+
+retry_find:
+
+    if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
+    pLeafNode = findLeaf(key);
+    if (pLeafNode->lock) { _xabort(1); goto retry_find; }
+    idx = pLeafNode->findKVIndex(key);
+    _xend();
+    return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
 }
+
+
+// uint64_t FPtree::find(uint64_t key)
+// {
+//     while (true)
+//     {
+//         lock();
+//         LeafNode* pLeafNode = findLeaf(key);
+//         if (pLeafNode->lock == 1)
+//             continue;
+//         uint64_t idx = pLeafNode->findKVIndex(key);
+//         unlock();
+//         return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+//     }
+// }
 
 
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
@@ -564,8 +620,6 @@ bool FPtree::update(struct KV kv)
 
 bool FPtree::insert(struct KV kv) 
 {
-    // std::cout << "\ninsert: " << kv.key << std::endl;
-
     #ifdef PMEM
         TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
         TOID(struct LeafNode) *dst = &D_RW(ListHead)->head;
@@ -598,7 +652,7 @@ bool FPtree::insert(struct KV kv)
         }
     #endif
 
-    std::pair<InnerNode*, LeafNode*> p = findLeafWithParent(kv.key);
+    std::pair<InnerNode*, LeafNode*> p = findAndPushInnerNodes(kv.key);
     InnerNode* parentNode = p.first;
     LeafNode* reachedLeafNode = p.second;
 
@@ -1007,6 +1061,22 @@ bool FPtree::ScanComplete()
 
 
 
+/*
+    Use case
+
+    uint64_t tick = rdtsc();
+    Put program between 
+    std::cout << rdtsc() - tick << std::endl;
+*/
+uint64_t rdtsc(){
+    unsigned int lo,hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+
+
+
 // int main(int argc, char *argv[]) 
 // {
 //     FPtree fptree;
@@ -1065,23 +1135,9 @@ bool FPtree::ScanComplete()
 // }
 
 
-/*
-    Use case
-
-    uint64_t tick = rdtsc();
-    Put program between 
-    std::cout << rdtsc() - tick << std::endl;
-*/
-uint64_t rdtsc(){
-    unsigned int lo,hi;
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    return ((uint64_t)hi << 32) | lo;
-}
-
-
 int main(int argc, char *argv[]) 
 {   
-    uint64_t NUM_OPS = 10000000;
+    uint64_t NUM_OPS = 1000000;
     double elapsed;
 
     /* Key value generator */
@@ -1102,9 +1158,14 @@ int main(int argc, char *argv[])
     // std::cin >> a;
 
     /* Testing phase */
+    // std::generate(begin(keys), end(keys), std::ref(rbe));
+    // std::generate(begin(values), end(values), std::ref(rbe));
+
+    std::cout << "Start testing phase...." << std::endl;
+
     auto t1 = std::chrono::high_resolution_clock::now();
     for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.insert(KV(keys[i], values[i]));
+        fptree.find(keys[i]);
     auto t2 = std::chrono::high_resolution_clock::now();
 
     // uint64_t tick = rdtsc();
@@ -1115,7 +1176,7 @@ int main(int argc, char *argv[])
     /* Getting number of milliseconds as a double */
     std::chrono::duration<double, std::milli> ms_double = t2 - t1;
 
-    /* Get stats */
+    // /* Get stats */
     elapsed = ms_double.count();
     std::cout << "\tRun time: " << elapsed << " milliseconds" << std::endl;
     std::cout << "\tThroughput: " << std::fixed << NUM_OPS / ( (float)elapsed / 1000 )

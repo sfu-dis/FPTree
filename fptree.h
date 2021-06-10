@@ -24,16 +24,18 @@
 #include <random>
 #include <climits>
 #include <functional>
-#include "immintrin.h"
+#include <immintrin.h>
+#include <tbb/spin_mutex.h>
+#include <thread>
 #include "bitset.h"
 
 #pragma once
 
-#define TEST_MODE 1
+#define TEST_MODE 0
 // #define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
-#if TEST_MODE == 1
+#if TEST_MODE == 0
     #define MAX_INNER_SIZE 1024
     #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
@@ -45,10 +47,16 @@
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
+static tbb::speculative_spin_mutex speculative_lock;
+
+static uint64_t lock_word = 0;
+static void lock() { while (!__sync_bool_compare_and_swap(&lock_word, 0, 1)) { } }
+static void unlock() { lock_word = 0; }
+
 #ifdef PMEM
     #include <libpmemobj.h>
 
-    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 8) * 100)  /* 8 * 10 MiB */
+    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 5) * 1000)  /* 1 * 1000 MiB */
 
     POBJ_LAYOUT_BEGIN(List);
     POBJ_LAYOUT_ROOT(List, struct List);
@@ -219,7 +227,7 @@ public:
     inline void clear() { num_nodes = 0; }
 };
 
-thread_local Stack stack_innerNodes;
+static thread_local Stack stack_innerNodes;
 
 
 struct FPtree 
@@ -262,6 +270,8 @@ private:
 
     // find leaf that could potentially contain the key, the returned leaf is not garanteed to contain the key
     LeafNode* findLeaf(uint64_t key);
+
+    std::pair<InnerNode*, LeafNode*> findAndPushInnerNodes(uint64_t key);
 
     //find leaf node that could potentially contain the key and its immediate parent
     std::pair<InnerNode*, LeafNode*> findLeafWithParent(uint64_t key);

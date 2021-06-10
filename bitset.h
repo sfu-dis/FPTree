@@ -11,7 +11,7 @@
 #define NUM_OF_BITS (8 * sizeof(unsigned char))
 
 const static size_t num_bytes = ceil(float(MAX_LEAF_SIZE) / NUM_OF_BITS);
-size_t iter = (MAX_LEAF_SIZE % 8 == 0) ? num_bytes : num_bytes - 1;
+const size_t iter = (MAX_LEAF_SIZE % 8 == 0) ? num_bytes : num_bytes - 1;
 const static size_t num_bits = MAX_LEAF_SIZE;
 const static size_t offset_bit = MAX_LEAF_SIZE - (8 * iter);
 const static unsigned char residual = (255 << offset_bit);
