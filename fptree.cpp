@@ -438,7 +438,7 @@ retry_find:
     if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
     pLeafNode = findLeaf(kv.key);
     if (pLeafNode->lock) { _xabort(1); goto retry_find; }
-    idx = pLeafNode->findKVIndex(key);
+    idx = pLeafNode->findKVIndex(kv.key);
     if (idx != MAX_LEAF_SIZE) {
     	kv.value = pLeafNode->kv_pairs[idx].value;
     	ret = true;
@@ -1172,8 +1172,10 @@ int main(int argc, char *argv[])
     std::cout << "Start testing phase...." << std::endl;
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.find(KV(keys[i],0));
+    for (uint64_t i = 0; i < NUM_OPS; i++) {
+    	KV kv = KV(keys[i],0);
+        fptree.find(kv);
+    }
     auto t2 = std::chrono::high_resolution_clock::now();
 
     // uint64_t tick = rdtsc();
