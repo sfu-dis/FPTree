@@ -1173,7 +1173,7 @@ int main(int argc, char *argv[])
 
     auto t1 = std::chrono::high_resolution_clock::now();
     for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.find(keys[i]);
+        fptree.find(KV(keys[i],0));
     auto t2 = std::chrono::high_resolution_clock::now();
 
     // uint64_t tick = rdtsc();
