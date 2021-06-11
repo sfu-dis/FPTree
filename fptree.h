@@ -131,8 +131,7 @@ public:
     ~InnerNode();
 
     // uint64_t: index of child that would lie along the path of searching key
-    // bool: whether current node actually contains key in keys
-    std::pair<uint64_t, bool> findChildIndex(uint64_t key);
+    uint64_t findChildIndex(uint64_t key);
 
     // remove key at index, default remove right child (or left child if false) 
     void removeKey(uint64_t index, bool remove_right_child);
@@ -271,7 +270,7 @@ private:
     // find leaf that could potentially contain the key, the returned leaf is not garanteed to contain the key
     LeafNode* findLeaf(uint64_t key);
 
-    std::pair<InnerNode*, LeafNode*> findAndPushInnerNodes(uint64_t key);
+    LeafNode* findAndPushInnerNodes(uint64_t key);
 
     //find leaf node that could potentially contain the key and its immediate parent
     std::pair<InnerNode*, LeafNode*> findLeafWithParent(uint64_t key);
