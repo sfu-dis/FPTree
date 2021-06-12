@@ -130,9 +130,8 @@ public:
     InnerNode(const InnerNode& inner);
     ~InnerNode();
 
-    // uint64_t: index of child that would lie along the path of searching key
-    // bool: whether current node actually contains key in keys
-    std::pair<uint64_t, bool> findChildIndex(uint64_t key);
+    // return index of child when searching key in this innernode
+    uint64_t findChildIndex(uint64_t key);
 
     // remove key at index, default remove right child (or left child if false) 
     void removeKey(uint64_t index, bool remove_right_child);
@@ -247,8 +246,8 @@ public:
 
     void printFPTree(std::string prefix, BaseNode *root);
 
-    // return 0 if key not found, otherwise return value associated with key
-    uint64_t find(uint64_t key);
+    // return flse if kv.key not found, otherwise set kv.value to value associated with kv.key
+    bool find(struct KV& kv);
 
     // return false if kv.key not found, otherwise update value associated with key
     bool update(struct KV kv);
@@ -270,13 +269,11 @@ public:
 
 private:
 
-    // find leaf that could potentially contain the key, the returned leaf is not garanteed to contain the key
+    // return leaf that may contain key, does not push inner nodes
     LeafNode* findLeaf(uint64_t key);
 
-    std::pair<InnerNode*, LeafNode*> findAndPushInnerNodes(uint64_t key);
-
-    //find leaf node that could potentially contain the key and its immediate parent
-    std::pair<InnerNode*, LeafNode*> findLeafWithParent(uint64_t key);
+    // return leaf that may contain key, push all innernodes on traversal path into stack
+    LeafNode* findLeafAndPushInnerNodes(uint64_t key);
 
     // First InnerNode*: innernode that contains key in keys, nullptr if no such innernode
     // Second InnerNode*: immediate parent of leaf node

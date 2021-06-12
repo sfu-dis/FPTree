@@ -323,64 +323,67 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 }
 
 
-inline std::pair<uint64_t, bool> InnerNode::findChildIndex(uint64_t key)
+inline uint64_t InnerNode::findChildIndex(uint64_t key)
 {
     auto lower = std::lower_bound(std::begin(this->keys), std::begin(this->keys) + this->nKey, key);
     uint64_t idx = lower - std::begin(this->keys);
-    if (idx < this->nKey && *lower == key)  
-        return std::make_pair(idx + 1, true);
-    return std::make_pair(idx, false);
+    if (idx < this->nKey && *lower == key) 
+        return idx + 1;
+    return idx;
 }
 
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
-    return findLeafWithParent(key).second;
+	if (!root->isInnerNode) {
+        return reinterpret_cast<LeafNode*> (root);
+    }
+    uint64_t child_idx;
+    InnerNode* parentNode = nullptr;
+    InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
+    while (cursor->isInnerNode) 
+    {
+        parentNode = cursor;
+        child_idx = cursor->findChildIndex(key);
+        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[child_idx]);
+    }
+    return reinterpret_cast<LeafNode*> (cursor);
 }
 
-inline std::pair<InnerNode*, LeafNode*> FPtree::findAndPushInnerNodes(uint64_t key)
+inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
 {
-    if (!root->isInnerNode)
-        return std::make_pair(nullptr, reinterpret_cast<LeafNode*> (root));
+    if (!root->isInnerNode) {
+    	stack_innerNodes.push(nullptr);
+        return reinterpret_cast<LeafNode*> (root);
+    }
+    uint64_t child_idx;
     InnerNode* parentNode = nullptr;
-    std::pair<uint64_t, bool> p;
     InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
-    while (cursor->isInnerNode == true) 
+    while (cursor->isInnerNode) 
     {
         parentNode = cursor;
         stack_innerNodes.push(parentNode);
-        p = cursor->findChildIndex(key);
-        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[p.first]);
+        child_idx = cursor->findChildIndex(key);
+        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[child_idx]);
     }
-    return std::make_pair(stack_innerNodes.pop(), reinterpret_cast<LeafNode*> (parentNode->p_children[p.first]));
-}
-
-inline std::pair<InnerNode*, LeafNode*> FPtree::findLeafWithParent(uint64_t key)
-{
-    if (!root->isInnerNode)
-    {
-        return std::make_pair(nullptr, reinterpret_cast<LeafNode*> (root));
-    }
-    std::tuple<InnerNode*, InnerNode*, uint64_t> nodes = findInnerAndLeafWithParent(key);
-    InnerNode* parent = std::get<1>(nodes);
-    return std::make_pair(parent, reinterpret_cast<LeafNode*> (parent->p_children[std::get<2>(nodes)]));
+    return reinterpret_cast<LeafNode*> (cursor);
 }
 
 inline std::tuple<InnerNode*, InnerNode*, uint64_t> FPtree::findInnerAndLeafWithParent(uint64_t key)
 {
     InnerNode* parentNode, *indexNode = nullptr;
-    std::pair<uint64_t, bool> p;
+    uint64_t p;
 
     InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
     while (cursor->isInnerNode == true) 
     {
         parentNode = cursor;
         p = cursor->findChildIndex(key);
-        if (p.second)
+        if (p > 0 && cursor->keys[p-1] == key)
             indexNode = cursor;
-        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[p.first]);
+        cursor = reinterpret_cast<InnerNode*> (cursor->p_children[p]);
     }
-    return std::make_tuple(indexNode, parentNode, p.first);
+    return std::make_tuple(indexNode, parentNode, p);
 }
 
 inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* child)
@@ -392,7 +395,7 @@ inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* ch
     while (cursor->isInnerNode == true) 
     {
         parent = cursor;
-        child_idx = cursor->findChildIndex(first_key).first;
+        child_idx = cursor->findChildIndex(first_key);
         cursor = reinterpret_cast<InnerNode*> (cursor->p_children[child_idx]);
         if (cursor == child)
             return std::make_pair(parent, child_idx);
@@ -425,45 +428,24 @@ inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* ch
 //     }
 // }
 
-// uint64_t FPtree::find(uint64_t key)
-// {
-//     LeafNode* pLeafNode;
-//     uint64_t idx;
-
-// retry_find:
-
-//     if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
-//     pLeafNode = findLeaf(key);
-//     if (pLeafNode->lock) { _xabort(1); goto retry_find; }
-//     idx = pLeafNode->findKVIndex(key);
-//     _xend();
-//     return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-// }
-
-
-uint64_t FPtree::find(uint64_t key)
+bool FPtree::find(struct KV& kv)
 {
     LeafNode* pLeafNode;
     uint64_t idx;
+    bool ret = false;
 
-    while (true)
-    {
-        unsigned status;
-        if ((status = _xbegin ()) == _XBEGIN_STARTED)
-        {
-            pLeafNode = findLeaf(key);
-            if (pLeafNode->lock) { _xabort(1); }
-            idx = pLeafNode->findKVIndex(key);
-            _xend();
-            return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-        } 
-        else
-        {
-            std::cout << status;
-        }
+retry_find:
+
+    if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
+    pLeafNode = findLeaf(kv.key);
+    if (pLeafNode->lock) { _xabort(1); goto retry_find; }
+    idx = pLeafNode->findKVIndex(kv.key);
+    if (idx != MAX_LEAF_SIZE) {
+    	kv.value = pLeafNode->kv_pairs[idx].value;
+    	ret = true;
     }
-    
-    return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+    _xend();
+    return ret;
 }
 
 
@@ -559,9 +541,9 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 {
     if (parent->nKey < MAX_INNER_SIZE)
     {
-        std::pair<uint64_t, bool> insert_pos = parent->findChildIndex(splitKey);
+        uint64_t insert_pos = parent->findChildIndex(splitKey);
         //assert(insert_pos.second == false && "Exception: duplicate key index detected!");
-        parent->addKey(insert_pos.first, splitKey, child);
+        parent->addKey(insert_pos, splitKey, child);
     }
     else 
     {
@@ -611,20 +593,21 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 
 bool FPtree::update(struct KV kv)
 {
-    // assert(root != nullptr);
+    // assert(root != nullptr && "Tree is empty!");
 
-    std::pair<InnerNode*, LeafNode*> p = findLeafWithParent(kv.key);
-    InnerNode* parentNode = p.first;
-    LeafNode* reachedLeafNode = p.second;
+    LeafNode* reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+    InnerNode* parentNode = stack_innerNodes.pop();
 
     uint64_t prevPos = reachedLeafNode->findKVIndex(kv.key);
-    // assert(prevPos != MAX_LEAF_SIZE && "Exception: no key is find");
-    if (prevPos == MAX_LEAF_SIZE) return true;
+    if (prevPos == MAX_LEAF_SIZE) {	// key not found
+    	stack_innerNodes.clear();
+    	return false;
+    }
 
     bool decision = reachedLeafNode->isFull();
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv, true, prevPos);
-
+    stack_innerNodes.clear();
     return true;
 }
 
@@ -664,9 +647,8 @@ bool FPtree::insert(struct KV kv)
         }
     #endif
 
-    std::pair<InnerNode*, LeafNode*> p = findAndPushInnerNodes(kv.key);
-    InnerNode* parentNode = p.first;
-    LeafNode* reachedLeafNode = p.second;
+    LeafNode* reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+    InnerNode* parentNode = stack_innerNodes.pop();
 
     // return false if key already exists
     uint64_t idx = reachedLeafNode->findKVIndex(kv.key);
@@ -851,17 +833,17 @@ bool FPtree::deleteKey(uint64_t key)
     }
     else    // key appears in inner node (above parent), it is the minimum key of right subtree. (leaf is left most child )
     {
-        std::pair<uint64_t, bool> p = indexNode->findChildIndex(key);
+        uint64_t p = indexNode->findChildIndex(key);
         value = leaf->removeKVByIdx(idx);
         if (leaf->countKV() == 0 && !tryBorrowKey(parent, child_idx, child_idx+1)) // no kv left and cannot borrow from right sibling
         {
             KV kv = reinterpret_cast<LeafNode*> (parent->p_children[child_idx+1])->minKV();
             leaf->addKV(kv);
-            indexNode->keys[p.first - 1] = kv.key;
+            indexNode->keys[p - 1] = kv.key;
             mergeNodes(parent, child_idx, child_idx+1);
         }
         else
-            indexNode->keys[p.first - 1] = minKey(indexNode->p_children[p.first]);
+            indexNode->keys[p - 1] = minKey(indexNode->p_children[p]);
     }
     return true;
 }
@@ -1172,8 +1154,10 @@ int main(int argc, char *argv[])
     std::cout << "Start testing phase...." << std::endl;
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.find(keys[i]);
+    for (uint64_t i = 0; i < NUM_OPS; i++) {
+    	KV kv = KV(keys[i],0);
+        fptree.find(kv);
+    }
     auto t2 = std::chrono::high_resolution_clock::now();
 
     // uint64_t tick = rdtsc();
