@@ -324,9 +324,10 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline uint64_t InnerNode::findChildIndex(uint64_t key)
 {
-    auto lower = std::lower_bound(std::begin(this->keys), std::begin(this->keys) + this->nKey, key);
-    uint64_t idx = lower - std::begin(this->keys);
-    if (idx < this->nKey && *lower == key) 
+	auto begin = std::begin(this->keys);
+    auto pos = std::lower_bound(begin, begin + this->nKey, key);
+    uint64_t idx = pos - begin;
+    if (idx < this->nKey && *pos == key) 
         return idx + 1;
     return idx;
 }
