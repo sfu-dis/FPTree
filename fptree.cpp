@@ -41,7 +41,7 @@ InnerNode::~InnerNode()
         this->isInnerNode = false;
         this->bitmap.reset();
         this->p_next = nullptr;
-        this->lock = ATOMIC_VAR_INIT(false);
+        this->lock = 0;
     }
 
     LeafNode::LeafNode(const LeafNode& leaf)
@@ -51,7 +51,7 @@ InnerNode::~InnerNode()
         memcpy(&this->fingerprints, &leaf.fingerprints, sizeof(leaf.fingerprints));
         memcpy(&this->kv_pairs, &leaf.kv_pairs, sizeof(leaf.kv_pairs));
         this->p_next = leaf.p_next;
-        this->lock.store(leaf.lock, std::memory_order_relaxed);
+        this->lock = leaf.lock;
     }
 
     LeafNode& LeafNode::operator=(const LeafNode& leaf)
@@ -61,7 +61,7 @@ InnerNode::~InnerNode()
         memcpy(&this->fingerprints, &leaf.fingerprints, sizeof(leaf.fingerprints));
         memcpy(&this->kv_pairs, &leaf.kv_pairs, sizeof(leaf.kv_pairs));
         this->p_next = leaf.p_next;
-        this->lock.store(leaf.lock, std::memory_order_relaxed);
+        this->lock = leaf.lock;
         return *this;
     }
 #endif
@@ -288,6 +288,7 @@ inline static uint8_t getOneByteHash(uint64_t key)
         memcpy(&(node->fingerprints), &(a->fingerprints), sizeof(a->fingerprints));
         memcpy(&(node->kv_pairs), &(a->kv_pairs), sizeof(a->kv_pairs));
         node->p_next = TOID_NULL(struct LeafNode);
+        node->lock = a->lock;
 
         pmemobj_persist(pop, node, a->size);
 
@@ -424,35 +425,46 @@ inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* ch
 //     }
 // }
 
+// uint64_t FPtree::find(uint64_t key)
+// {
+//     LeafNode* pLeafNode;
+//     uint64_t idx;
+
+// retry_find:
+
+//     if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
+//     pLeafNode = findLeaf(key);
+//     if (pLeafNode->lock) { _xabort(1); goto retry_find; }
+//     idx = pLeafNode->findKVIndex(key);
+//     _xend();
+//     return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+// }
+
+
 uint64_t FPtree::find(uint64_t key)
 {
     LeafNode* pLeafNode;
     uint64_t idx;
 
-retry_find:
-
-    if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
-    pLeafNode = findLeaf(key);
-    if (pLeafNode->lock) { _xabort(1); goto retry_find; }
-    idx = pLeafNode->findKVIndex(key);
-    _xend();
+    while (true)
+    {
+        unsigned status;
+        if ((status = _xbegin ()) == _XBEGIN_STARTED)
+        {
+            pLeafNode = findLeaf(key);
+            if (pLeafNode->lock) { _xabort(1); }
+            idx = pLeafNode->findKVIndex(key);
+            _xend();
+            return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+        } 
+        else
+        {
+            std::cout << status;
+        }
+    }
+    
     return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
 }
-
-
-// uint64_t FPtree::find(uint64_t key)
-// {
-//     while (true)
-//     {
-//         lock();
-//         LeafNode* pLeafNode = findLeaf(key);
-//         if (pLeafNode->lock == 1)
-//             continue;
-//         uint64_t idx = pLeafNode->findKVIndex(key);
-//         unlock();
-//         return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-//     }
-// }
 
 
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
@@ -632,7 +644,7 @@ bool FPtree::insert(struct KV kv)
             args.kv_pairs[0] = kv;
             args.fingerprints[0] = getOneByteHash(kv.key);
             args.bitmap.set(0);
-            args.lock = ATOMIC_VAR_INIT(false);
+            args.lock = 0;
 
             POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
 
@@ -688,7 +700,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         memcpy(&(args.fingerprints), &(leaf->fingerprints), sizeof(leaf->fingerprints));
         memcpy(&(args.kv_pairs), &(leaf->kv_pairs), sizeof(leaf->kv_pairs));
         args.bitmap = leaf->bitmap;
-        args.lock.store(leaf->lock, std::memory_order_relaxed);
+        args.lock = leaf->lock;
 
         POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
 
@@ -1137,7 +1149,7 @@ uint64_t rdtsc(){
 
 int main(int argc, char *argv[]) 
 {   
-    uint64_t NUM_OPS = 1000000;
+    uint64_t NUM_OPS = 25000000;
     double elapsed;
 
     /* Key value generator */
@@ -1152,10 +1164,6 @@ int main(int argc, char *argv[])
     FPtree fptree;
     for (uint64_t i = 0; i < NUM_OPS; i++)
         fptree.insert(KV(keys[i], values[i]));
-
-    // std::cout << "enter: ";
-    // int a;
-    // std::cin >> a;
 
     /* Testing phase */
     // std::generate(begin(keys), end(keys), std::ref(rbe));

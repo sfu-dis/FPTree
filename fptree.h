@@ -24,8 +24,8 @@
 #include <random>
 #include <climits>
 #include <functional>
-#include <immintrin.h>
 #include <tbb/spin_mutex.h>
+#include <immintrin.h>
 #include <thread>
 #include "bitset.h"
 
@@ -49,7 +49,7 @@ const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX
 
 static tbb::speculative_spin_mutex speculative_lock;
 
-static uint64_t lock_word = 0;
+static __attribute__((aligned(64))) uint64_t lock_word = 0;
 static void lock() { while (!__sync_bool_compare_and_swap(&lock_word, 0, 1)) { } }
 static void unlock() { lock_word = 0; }
 
@@ -92,7 +92,7 @@ struct KV
         std::bitset<MAX_LEAF_SIZE> bitmap;
         __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
         KV kv_pairs[MAX_LEAF_SIZE];
-        std::atomic<bool> lock;
+        uint64_t lock;
     };
 
 
@@ -147,16 +147,18 @@ struct LeafNode : BaseNode
 {
     std::bitset<MAX_LEAF_SIZE> bitmap;
     // Bitset bitmap;
+
+    __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
     
     #ifdef PMEM
         TOID(struct LeafNode) p_next;
     #else
         LeafNode* p_next;
     #endif
-
-    __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
+    
     KV kv_pairs[MAX_LEAF_SIZE];
-    std::atomic<bool> lock;
+    
+    uint64_t lock;
 
     friend class FPtree;
 
