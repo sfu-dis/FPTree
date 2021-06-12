@@ -335,9 +335,8 @@ inline uint64_t InnerNode::findChildIndex(uint64_t key)
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
-	if (!root->isInnerNode) {
+	if (!root->isInnerNode) 
         return reinterpret_cast<LeafNode*> (root);
-    }
     uint64_t child_idx;
     InnerNode* parentNode = nullptr;
     InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
@@ -539,54 +538,58 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
 void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child)
 {
-    if (parent->nKey < MAX_INNER_SIZE)
+    while (true)
     {
-        uint64_t insert_pos = parent->findChildIndex(splitKey);
-        //assert(insert_pos.second == false && "Exception: duplicate key index detected!");
-        parent->addKey(insert_pos, splitKey, child);
-    }
-    else 
-    {
-        InnerNode* newInnerNode = new InnerNode();
-        uint64_t mid = floor((MAX_INNER_SIZE + 1) / 2);
-        std::array<uint64_t, MAX_INNER_SIZE + 1> temp_keys;
-        std::array<BaseNode*, MAX_INNER_SIZE + 2> temp_children;
-        size_t key_idx = 0, insert_idx = MAX_INNER_SIZE;
-
-        for (size_t i = 0; i < MAX_INNER_SIZE; i++){
-            if (splitKey < parent->keys[i] && insert_idx == MAX_INNER_SIZE)
-                insert_idx = key_idx++;
-            temp_keys[key_idx] = parent->keys[i];
-            temp_children[++key_idx] = parent->p_children[i+1];
-        }
-        temp_keys[insert_idx] = splitKey;
-        temp_children[insert_idx + 1] = child;
-
-        for (size_t i = 0; i < mid; i++)
+        if (parent->nKey < MAX_INNER_SIZE)
         {
-            parent->keys[i] = temp_keys[i];
-            parent->p_children[i+1] = temp_children[i+1];
-        }
-        parent->nKey = mid;
-        splitKey = temp_keys[mid];
-
-        key_idx = 0;
-        newInnerNode->p_children[key_idx] = temp_children[mid+1];
-        for (size_t i = mid + 1; i <= MAX_INNER_SIZE; i++)
-        {
-            newInnerNode->keys[key_idx] = temp_keys[i];
-            newInnerNode->p_children[++key_idx] = temp_children[i+1];
-        }
-        newInnerNode->nKey = key_idx;
-        
-        if (parent == root)
-        {
-            root = new InnerNode();
-            reinterpret_cast<InnerNode*> (root)->addKey(0, splitKey, parent, false);
-            reinterpret_cast<InnerNode*> (root)->p_children[1] = newInnerNode;
+            uint64_t insert_pos = parent->findChildIndex(splitKey);
+            parent->addKey(insert_pos, splitKey, child);
             return;
         }
-        updateParents(splitKey, stack_innerNodes.pop(), newInnerNode);
+        else 
+        {
+            InnerNode* newInnerNode = new InnerNode();
+            uint64_t mid = floor((MAX_INNER_SIZE + 1) / 2);
+            std::array<uint64_t, MAX_INNER_SIZE + 1> temp_keys;
+            std::array<BaseNode*, MAX_INNER_SIZE + 2> temp_children;
+            size_t key_idx = 0, insert_idx = MAX_INNER_SIZE;
+
+            for (size_t i = 0; i < MAX_INNER_SIZE; i++){
+                if (splitKey < parent->keys[i] && insert_idx == MAX_INNER_SIZE)
+                    insert_idx = key_idx++;
+                temp_keys[key_idx] = parent->keys[i];
+                temp_children[++key_idx] = parent->p_children[i+1];
+            }
+            temp_keys[insert_idx] = splitKey;
+            temp_children[insert_idx + 1] = child;
+
+            for (size_t i = 0; i < mid; i++)
+            {
+                parent->keys[i] = temp_keys[i];
+                parent->p_children[i+1] = temp_children[i+1];
+            }
+            parent->nKey = mid;
+            splitKey = temp_keys[mid];
+
+            key_idx = 0;
+            newInnerNode->p_children[key_idx] = temp_children[mid+1];
+            for (size_t i = mid + 1; i <= MAX_INNER_SIZE; i++)
+            {
+                newInnerNode->keys[key_idx] = temp_keys[i];
+                newInnerNode->p_children[++key_idx] = temp_children[i+1];
+            }
+            newInnerNode->nKey = key_idx;
+            
+            if (parent == root)
+            {
+                root = new InnerNode();
+                reinterpret_cast<InnerNode*> (root)->addKey(0, splitKey, parent, false);
+                reinterpret_cast<InnerNode*> (root)->p_children[1] = newInnerNode;
+                return;
+            }
+            parent = stack_innerNodes.pop();
+            child = newInnerNode;
+        }
     }
 }
 
@@ -1070,152 +1073,110 @@ uint64_t rdtsc(){
 
 
 
-
-// int main(int argc, char *argv[]) 
-// {
-//     FPtree fptree;
-
-//     #ifdef PMEM
-//         const char* command = argv[1];
-//         if (command != NULL && strcmp(command, "show") == 0)
-//         {  
-//             showList();
-//             return 0;
-//         }
-//     #endif
-
-//     int64_t key;
-//     uint64_t value;
-//     while (true)
-//     {
-//         std::cout << "\nEnter the key to insert, delete or update (-1): "; 
-//         std::cin >> key;
-//         std::cout << std::endl;
-//         if (key == 0)
-//             break;
-//         // else if (fptree.find(key) != 0)
-//         //     fptree.deleteKey(key);
-//         else if (key == -1)
-//         {
-//             std::cout << "\nEnter the key to update: ";
-//             std::cin >> key;
-//             std::cout << "\nEnter the value to update: ";
-//             std::cin >> value;
-//             fptree.update(KV(key, value));
-//         }
-//         else
-//         {
-//             fptree.insert(KV(key, key));
-//         }
-//         fptree.printFPTree("├──", fptree.getRoot());
-//         #ifdef PMEM
-//             std::cout << std::endl;
-//             std::cout << "show list: " << std::endl;
-//             showList();
-//         #endif
-//     }
-
-
-//     std::cout << "\nEnter the key to initialize scan: "; 
-//     std::cin >> key;
-//     std::cout << std::endl;
-//     fptree.ScanInitialize(key);
-//     while(!fptree.ScanComplete())
-//     {
-//         KV kv = fptree.ScanNext();
-//         std::cout << kv.key << "," << kv.value << " ";
-//     }
-//     std::cout << std::endl;
-// }
-
-
-int main(int argc, char *argv[]) 
-{   
-    uint64_t NUM_OPS = 25000000;
-    double elapsed;
-
-    /* Key value generator */
-    std::independent_bits_engine<std::default_random_engine, 64, uint64_t> rbe;
-    std::vector<uint64_t> keys(NUM_OPS);
-    std::generate(begin(keys), end(keys), std::ref(rbe));
-    
-    std::vector<uint64_t> values(NUM_OPS);
-    std::generate(begin(values), end(values), std::ref(rbe));
-
-    /* Loading phase */
-    FPtree fptree;
-    for (uint64_t i = 0; i < NUM_OPS; i++)
-        fptree.insert(KV(keys[i], values[i]));
-
-    /* Testing phase */
-    // std::generate(begin(keys), end(keys), std::ref(rbe));
-    // std::generate(begin(values), end(values), std::ref(rbe));
-
-    std::cout << "Start testing phase...." << std::endl;
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    for (uint64_t i = 0; i < NUM_OPS; i++) {
-    	KV kv = KV(keys[i],0);
-        fptree.find(kv);
-    }
-    auto t2 = std::chrono::high_resolution_clock::now();
-
-    // uint64_t tick = rdtsc();
-    // for (uint64_t i = 0; i < NUM_OPS; i++)
-    //     fptree.insert(KV(keys[i], values[i]));
-    // uint64_t cycles = rdtsc() - tick;
-
-    /* Getting number of milliseconds as a double */
-    std::chrono::duration<double, std::milli> ms_double = t2 - t1;
-
-    // /* Get stats */
-    elapsed = ms_double.count();
-    std::cout << "\tRun time: " << elapsed << " milliseconds" << std::endl;
-    std::cout << "\tThroughput: " << std::fixed << NUM_OPS / ( (float)elapsed / 1000 )
-            << " ops/s" << std::endl;
-    // std::cout << "\tCPU cycles per operation: " << cycles / NUM_OPS << " cycles/op" << std::endl;
-}
-
-
-
-
-
-
-/*
-for (uint64_t i = 0; i < 1000000; i++)
-    fptree.deleteKey(i);
-
-
-for (uint64_t i = 0; i < 1000000-1; i++) 
-{
-    fptree.ScanInitialize(i);
-    fptree.ScanNext();
-}
-
-
-std::cout << "Print findInnerNodeParent(parent).first: " << std::endl;
-InnerNode* tmp = findInnerNodeParent(parent).first;
-for (int i = 0; i < tmp->nKey; i++) 
-    std::cout << tmp->keys[i] << " ";
-std::cout << "tmp:" << tmp << "\n";
-std::cout << "num_nodes:" << stack_innerNodes.num_nodes << std::endl;
-std::cout << "stack_innerNodes.pop():" << stack_innerNodes.pop() << "\n\n";
-updateParents(splitKey, tmp, newInnerNode);
-stack_innerNodes.pop();
-updateParents(splitKey, findInnerNodeParent(parent).first, newInnerNode);
-
-inline void printStack() 
-{
-    std::cout << "Print stack:" << std::endl;
-    if (num_nodes != 0) 
+#if TEST_MODE == 1
+    int main(int argc, char *argv[]) 
     {
-        for (size_t i = num_nodes - 1; i >= 0; i--) 
+        FPtree fptree;
+
+        #ifdef PMEM
+            const char* command = argv[1];
+            if (command != NULL && strcmp(command, "show") == 0)
+            {  
+                showList();
+                return 0;
+            }
+        #endif
+
+        int64_t key;
+        uint64_t value;
+        while (true)
         {
-            for (size_t j = 0; j < this->innerNodes[i]->nKey; j++)
-            std::cout << this->innerNodes[i]->keys[j] << " ";
-            std::cout << "\n";
+            std::cout << "\nEnter the key to insert, delete or update (-1): "; 
+            std::cin >> key;
+            std::cout << std::endl;
+            if (key == 0)
+                break;
+            // else if (fptree.find(key) != 0)
+            //     fptree.deleteKey(key);
+            else if (key == -1)
+            {
+                std::cout << "\nEnter the key to update: ";
+                std::cin >> key;
+                std::cout << "\nEnter the value to update: ";
+                std::cin >> value;
+                fptree.update(KV(key, value));
+            }
+            else
+            {
+                fptree.insert(KV(key, key));
+            }
+            fptree.printFPTree("├──", fptree.getRoot());
+            #ifdef PMEM
+                std::cout << std::endl;
+                std::cout << "show list: " << std::endl;
+                showList();
+            #endif
         }
-        std::cout << "\n\n";
+
+
+        std::cout << "\nEnter the key to initialize scan: "; 
+        std::cin >> key;
+        std::cout << std::endl;
+        fptree.ScanInitialize(key);
+        while(!fptree.ScanComplete())
+        {
+            KV kv = fptree.ScanNext();
+            std::cout << kv.key << "," << kv.value << " ";
+        }
+        std::cout << std::endl;
     }
-}
-*/
+#else
+    int main(int argc, char *argv[]) 
+    {   
+        uint64_t NUM_OPS = 25000000;
+        double elapsed;
+
+        /* Key value generator */
+        std::independent_bits_engine<std::default_random_engine, 64, uint64_t> rbe;
+        std::vector<uint64_t> keys(NUM_OPS);
+        std::generate(begin(keys), end(keys), std::ref(rbe));
+        
+        std::vector<uint64_t> values(NUM_OPS);
+        std::generate(begin(values), end(values), std::ref(rbe));
+
+        /* Loading phase */
+        FPtree fptree;
+        for (uint64_t i = 0; i < NUM_OPS; i++)
+            fptree.insert(KV(keys[i], values[i]));
+
+        /* Testing phase */
+        // std::generate(begin(keys), end(keys), std::ref(rbe));
+        // std::generate(begin(values), end(values), std::ref(rbe));
+
+        std::cout << "Start testing phase...." << std::endl;
+
+        auto t1 = std::chrono::high_resolution_clock::now();
+        for (uint64_t i = 0; i < NUM_OPS; i++) {
+            KV kv = KV(keys[i],0);
+            fptree.find(kv);
+        }
+        auto t2 = std::chrono::high_resolution_clock::now();
+
+        // uint64_t tick = rdtsc();
+        // for (uint64_t i = 0; i < NUM_OPS; i++)
+        //     fptree.insert(KV(keys[i], values[i]));
+        // uint64_t cycles = rdtsc() - tick;
+
+        /* Getting number of milliseconds as a double */
+        std::chrono::duration<double, std::milli> ms_double = t2 - t1;
+
+        // /* Get stats */
+        elapsed = ms_double.count();
+        std::cout << "\tRun time: " << elapsed << " milliseconds" << std::endl;
+        std::cout << "\tThroughput: " << std::fixed << NUM_OPS / ( (float)elapsed / 1000 )
+                << " ops/s" << std::endl;
+        // std::cout << "\tCPU cycles per operation: " << cycles / NUM_OPS << " cycles/op" << std::endl;
+    }
+#endif
+
+
