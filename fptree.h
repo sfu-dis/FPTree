@@ -48,6 +48,7 @@
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
 static tbb::speculative_spin_mutex speculative_lock;
+static tbb::speculative_spin_mutex::scoped_lock scoped_lock();
 
 static __attribute__((aligned(64))) uint64_t lock_word = 0;
 static void lock() { while (!__sync_bool_compare_and_swap(&lock_word, 0, 1)) { } }
