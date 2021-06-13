@@ -229,7 +229,8 @@ public:
 };
 
 static thread_local Stack stack_innerNodes;
-
+static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
+static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
 
 struct FPtree 
 {
@@ -255,7 +256,7 @@ public:
     // return false if key already exists, otherwise insert kv
     bool insert(struct KV kv);
 
-    // delete key from tree and return associated value 
+    // delete key from tree 
     bool deleteKey(uint64_t key);
 
     // initialize scan by finding the first kv with kv.key >= key
@@ -275,14 +276,6 @@ private:
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
 
-    // First InnerNode*: innernode that contains key in keys, nullptr if no such innernode
-    // Second InnerNode*: immediate parent of leaf node
-    // uint64_t: p_children index of parent that could potentially contain key
-    std::tuple<InnerNode*, InnerNode*, uint64_t> findInnerAndLeafWithParent(uint64_t key);
-
-    // find immediate parent of child and the child index, child != root
-    std::pair<InnerNode*, uint64_t> findInnerNodeParent(InnerNode* child);
-
     uint64_t findSplitKey(LeafNode* leaf);
 
     uint64_t splitLeaf(LeafNode* leaf);
@@ -294,7 +287,7 @@ private:
 
     // if parent's children are leaf nodes, assume left child has one child at index 0, right child empty
     // if parent's children are inner nodes, assume the child with no key has one child at index 0
-    void mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t right_child_idx);
+    void mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t right_child_idx, uint64_t deleted_key);
 
     // try transfer a key from sender to receiver, sender and receiver should be immediate siblings 
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0
