@@ -562,7 +562,9 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
         else 
         {
             InnerNode* newInnerNode = new InnerNode();
-            uint64_t insert_idx = std::lower_bound(parent->keys, parent->keys + parent->nKey, splitKey) - parent->keys;
+            uint64_t insert_idx = std::lower_bound(parent->keys, parent->keys + MAX_INNER_SIZE, splitKey) - parent->keys;
+            if (insert_idx == MAX_INNER_SIZE)
+                insert_idx --;
             if (insert_idx < mid) { // insert into parent node
                 new_splitKey = parent->keys[mid-1];
                 parent->nKey = mid-1;
