@@ -86,15 +86,15 @@ void InnerNode::removeKey(uint64_t index, bool remove_right_child = true)
 void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right = true)
 {
     // assert(this->nKey >= index && "Insert key index out of range!");
-    auto pos = this->keys+index;
     std::memmove(this->keys+index+1, this->keys+index, (this->nKey-index)*sizeof(uint64_t)); // move keys
+    this->keys[index] = key;
     // move child pointers
     if (add_child_right)
-        std::memmove(this->p_children+index+2, this->p_children+index+1, (this->nKey-index)*sizeof(BaseNode*));
-    else
-        std::memmove(this->p_children+index+1, this->p_children+index, (this->nKey-index+1)*sizeof(BaseNode*));
+        index ++;
+    std::memmove(this->p_children+index+1, this->p_children+index, (this->nKey-index+1)*sizeof(BaseNode*));
+    this->p_children[index] = child;
     this->nKey++;
-    
+
     // uint64_t i = this->nKey, j = i;
     // this->nKey++;
     // for (i; i > index; i--)
