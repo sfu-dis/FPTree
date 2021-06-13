@@ -86,21 +86,30 @@ void InnerNode::removeKey(uint64_t index, bool remove_right_child = true)
 void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right = true)
 {
     // assert(this->nKey >= index && "Insert key index out of range!");
-    uint64_t i = this->nKey, j = i;
-    this->nKey++;
-    for (i; i > index; i--)
-    {
-        this->keys[i] = this->keys[i-1];
-        this->p_children[i+1] = this->p_children[i];
-    }
+    std::memmove(this->keys+index+1, this->keys+index, (this->nKey-index)*sizeof(uint64_t)); // move keys
     this->keys[index] = key;
-    if (!add_child_right)
-    {
-        this->p_children[index+1] = this->p_children[index];
-        this->p_children[index] = child;
-    }
-    else
-        this->p_children[index+1] = child;
+    // move child pointers
+    if (add_child_right)
+        index ++;
+    std::memmove(this->p_children+index+1, this->p_children+index, (this->nKey-index+1)*sizeof(BaseNode*));
+    this->p_children[index] = child;
+    this->nKey++;
+
+    // uint64_t i = this->nKey, j = i;
+    // this->nKey++;
+    // for (i; i > index; i--)
+    // {
+    //     this->keys[i] = this->keys[i-1];
+    //     this->p_children[i+1] = this->p_children[i];
+    // }
+    // this->keys[index] = key;
+    // if (!add_child_right)
+    // {
+    //     this->p_children[index+1] = this->p_children[index];
+    //     this->p_children[index] = child;
+    // }
+    // else
+    //     this->p_children[index+1] = child;
 }
 
 inline uint64_t LeafNode::findFirstZero()
@@ -325,8 +334,9 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline uint64_t InnerNode::findChildIndex(uint64_t key)
 {
-    auto lower = std::lower_bound(std::begin(this->keys), std::begin(this->keys) + this->nKey, key);
-    uint64_t idx = lower - std::begin(this->keys);
+    auto begin = std::begin(this->keys);
+    auto lower = std::lower_bound(begin, begin + this->nKey, key);
+    uint64_t idx = lower - begin;
     if (idx < this->nKey && *lower == key) 
         return idx + 1;
     return idx;
