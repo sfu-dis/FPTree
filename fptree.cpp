@@ -427,25 +427,61 @@ inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* ch
 //     }
 // }
 
+
+static uint64_t abort_counter = 0;
+
+// bool FPtree::find(struct KV& kv)
+// {
+//     LeafNode* pLeafNode;
+//     uint64_t idx;
+//     bool ret = false;
+
+// retry_find:
+
+//     if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
+//     // tbb::speculative_spin_mutex::scoped_lock lock(speculative_lock);
+//     pLeafNode = findLeaf(kv.key);
+//     if (pLeafNode->lock) { _xabort(1); goto retry_find; }
+//     idx = pLeafNode->findKVIndex(kv.key);
+//     if (idx != MAX_LEAF_SIZE) {
+//     	kv.value = pLeafNode->kv_pairs[idx].value;
+//     	ret = true;
+//     }
+//     // tbb::speculative_spin_mutex::scoped_lock unlock(speculative_lock);
+//     _xend();
+//     return ret;
+// }
+
+
 bool FPtree::find(struct KV& kv)
 {
     LeafNode* pLeafNode;
     uint64_t idx;
     bool ret = false;
 
-retry_find:
-
-    if (_xbegin() != _XBEGIN_STARTED) goto retry_find;
-    pLeafNode = findLeaf(kv.key);
-    if (pLeafNode->lock) { _xabort(1); goto retry_find; }
-    idx = pLeafNode->findKVIndex(kv.key);
-    if (idx != MAX_LEAF_SIZE) {
-    	kv.value = pLeafNode->kv_pairs[idx].value;
-    	ret = true;
+    while (true)
+    {
+        unsigned status;
+        if ((status = _xbegin ()) == _XBEGIN_STARTED)
+        {
+            pLeafNode = findLeaf(kv.key);
+            idx = pLeafNode->findKVIndex(kv.key);
+            if (pLeafNode->lock) { _xabort(1); continue; }
+            if (idx != MAX_LEAF_SIZE) {
+                kv.value = pLeafNode->kv_pairs[idx].value;
+                ret = true;
+            }
+            _xend();
+            return ret;
+        }
+        else 
+        {
+            abort_counter++;
+            // ... non transactional fallback path...
+        }
     }
-    _xend();
-    return ret;
 }
+
 
 
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
@@ -1133,7 +1169,7 @@ uint64_t rdtsc(){
 #else
     int main(int argc, char *argv[]) 
     {   
-        uint64_t NUM_OPS = 25000000;
+        uint64_t NUM_OPS = 100000000;
         double elapsed;
 
         /* Key value generator */
@@ -1161,6 +1197,8 @@ uint64_t rdtsc(){
             fptree.find(kv);
         }
         auto t2 = std::chrono::high_resolution_clock::now();
+
+        std::cout << "Abort:" << abort_counter << std::endl;
 
         // uint64_t tick = rdtsc();
         // for (uint64_t i = 0; i < NUM_OPS; i++)
