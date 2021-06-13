@@ -247,7 +247,7 @@ public:
     void printFPTree(std::string prefix, BaseNode *root);
 
     // return flse if kv.key not found, otherwise set kv.value to value associated with kv.key
-    bool find(struct KV& kv);
+    uint64_t find(uint64_t key);
 
     // return false if kv.key not found, otherwise update value associated with key
     bool update(struct KV kv);
@@ -264,6 +264,8 @@ public:
     KV ScanNext();
 
     bool ScanComplete();
+
+    void printTSXInfo();
 
     //bool bulkLoad();
 

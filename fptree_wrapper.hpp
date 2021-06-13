@@ -34,6 +34,7 @@ fptree_wrapper::fptree_wrapper()
 
 fptree_wrapper::~fptree_wrapper()
 {
+    tree_.printTSXInfo();
 }
 
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
@@ -41,10 +42,10 @@ bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
     // For now only support 8 bytes key and value (uint64_t)
     assert(key_sz == sizeof(uint64_t));
     // std::shared_lock lock(mutex_);
-    KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), 0);
-    if (!tree_.find(kv))
+    uint64_t value = tree_.find(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)));
+    if (value == 0)
         return false;
-    memcpy(value_out, &kv.value, sizeof(uint64_t));
+    memcpy(value_out, &value, sizeof(value));
     return true;
 }
 

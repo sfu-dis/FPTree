@@ -94,22 +94,6 @@ void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_c
     std::memmove(this->p_children+index+1, this->p_children+index, (this->nKey-index+1)*sizeof(BaseNode*));
     this->p_children[index] = child;
     this->nKey++;
-
-    // uint64_t i = this->nKey, j = i;
-    // this->nKey++;
-    // for (i; i > index; i--)
-    // {
-    //     this->keys[i] = this->keys[i-1];
-    //     this->p_children[i+1] = this->p_children[i];
-    // }
-    // this->keys[index] = key;
-    // if (!add_child_right)
-    // {
-    //     this->p_children[index+1] = this->p_children[index];
-    //     this->p_children[index] = child;
-    // }
-    // else
-    //     this->p_children[index+1] = child;
 }
 
 inline uint64_t LeafNode::findFirstZero()
@@ -439,6 +423,13 @@ inline std::pair<InnerNode*, uint64_t> FPtree::findInnerNodeParent(InnerNode* ch
 
 
 static uint64_t abort_counter = 0;
+static uint64_t conflict_counter = 0;
+static uint64_t capacity_counter = 0;
+static uint64_t debug_counter = 0;
+static uint64_t failed_counter = 0;
+static uint64_t explicit_counter = 0;
+static uint64_t nester_counter = 0;
+static uint64_t zero_counter = 0;
 
 // bool FPtree::find(struct KV& kv)
 // {
@@ -463,33 +454,63 @@ static uint64_t abort_counter = 0;
 // }
 
 
-bool FPtree::find(struct KV& kv)
+uint64_t FPtree::find(uint64_t key)
 {
     LeafNode* pLeafNode;
     uint64_t idx;
     bool ret = false;
 
-    while (true)
+    for (size_t i = 0; i < 5; i++)
     {
         unsigned status;
         if ((status = _xbegin ()) == _XBEGIN_STARTED)
         {
-            pLeafNode = findLeaf(kv.key);
-            idx = pLeafNode->findKVIndex(kv.key);
+            pLeafNode = findLeaf(key);
+            idx = pLeafNode->findKVIndex(key);
             if (pLeafNode->lock) { _xabort(1); continue; }
-            if (idx != MAX_LEAF_SIZE) {
-                kv.value = pLeafNode->kv_pairs[idx].value;
-                ret = true;
-            }
             _xend();
-            return ret;
+            if (idx != MAX_LEAF_SIZE) 
+                return pLeafNode->kv_pairs[idx].value;
         }
         else 
         {
             abort_counter++;
+            if (status & _XABORT_CONFLICT){
+                conflict_counter++;
+            }
+            if (status & _XABORT_CAPACITY){
+                capacity_counter++;
+            }
+            if (status & _XABORT_DEBUG){
+                debug_counter++;
+            }
+            if ((status & _XABORT_RETRY) == 0){
+                failed_counter++;
+            }
+            if (status & _XABORT_EXPLICIT) {
+                explicit_counter++;
+            }
+            if (status & _XABORT_NESTED) {
+                nester_counter++;
+            }
+            if (status == 0) {
+                zero_counter++;
+            }
             // ... non transactional fallback path...
         }
     }
+}
+
+void FPtree::printTSXInfo() 
+{
+    std::cout << "Abort:" << abort_counter << std::endl;
+    std::cout << "conflict_counter:" << conflict_counter << std::endl;
+    std::cout << "capacity_counter:" << capacity_counter << std::endl;
+    std::cout << "debug_counter:" << debug_counter << std::endl;
+    std::cout << "failed_counter:" << failed_counter << std::endl;
+    std::cout << "explicit_counter:" << explicit_counter << std::endl;
+    std::cout << "nester_counter:" << nester_counter << std::endl;
+    std::cout << "zero_counter:" << zero_counter << std::endl;
 }
 
 
@@ -1202,13 +1223,18 @@ uint64_t rdtsc(){
         std::cout << "Start testing phase...." << std::endl;
 
         auto t1 = std::chrono::high_resolution_clock::now();
-        for (uint64_t i = 0; i < NUM_OPS; i++) {
-            KV kv = KV(keys[i],0);
-            fptree.find(kv);
-        }
+        for (uint64_t i = 0; i < NUM_OPS; i++) 
+            fptree.find(keys[i]);
         auto t2 = std::chrono::high_resolution_clock::now();
 
         std::cout << "Abort:" << abort_counter << std::endl;
+        std::cout << "conflict_counter:" << conflict_counter << std::endl;
+        std::cout << "capacity_counter:" << capacity_counter << std::endl;
+        std::cout << "debug_counter:" << debug_counter << std::endl;
+        std::cout << "failed_counter:" << failed_counter << std::endl;
+        std::cout << "explicit_counter:" << explicit_counter << std::endl;
+        std::cout << "nester_counter:" << nester_counter << std::endl;
+        std::cout << "zero_counter:" << zero_counter << std::endl;
 
         // uint64_t tick = rdtsc();
         // for (uint64_t i = 0; i < NUM_OPS; i++)
@@ -1228,3 +1254,18 @@ uint64_t rdtsc(){
 #endif
 
 
+// uint64_t i = this->nKey, j = i;
+// this->nKey++;
+// for (i; i > index; i--)
+// {
+//     this->keys[i] = this->keys[i-1];
+//     this->p_children[i+1] = this->p_children[i];
+// }
+// this->keys[index] = key;
+// if (!add_child_right)
+// {
+//     this->p_children[index+1] = this->p_children[index];
+//     this->p_children[index] = child;
+// }
+// else
+//     this->p_children[index+1] = child;
