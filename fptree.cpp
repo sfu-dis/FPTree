@@ -86,6 +86,7 @@ void InnerNode::removeKey(uint64_t index, bool remove_right_child = true)
 void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right = true)
 {
     // assert(this->nKey >= index && "Insert key index out of range!");
+
     std::memmove(this->keys+index+1, this->keys+index, (this->nKey-index)*sizeof(uint64_t)); // move keys
     this->keys[index] = key;
     // move child pointers
@@ -548,6 +549,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
 void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child)
 {
+    uint64_t mid = floor((MAX_INNER_SIZE + 1) / 2);
+    uint64_t new_splitKey;
     while (true)
     {
         if (parent->nKey < MAX_INNER_SIZE)
@@ -559,7 +562,39 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
         else 
         {
             InnerNode* newInnerNode = new InnerNode();
-            uint64_t mid = floor((MAX_INNER_SIZE + 1) / 2);
+            uint64_t insert_idx = std::lower_bound(parent->keys, parent->keys + parent->nKey, splitKey) - parent->keys;
+            if (insert_idx < mid) { // insert into parent node
+                new_splitKey = parent[mid-1];
+                parent->nKey = mid-1;
+                std::memmove(newInnerNode->keys, parent->keys + mid, (MAX_INNER_SIZE - mid)*sizeof(uint64_t));
+                std::memmove(newInnerNode->p_children, parent->p_children + mid, (MAX_INNER_SIZE - mid + 1)*sizeof(BaseNode*));
+                parent->addKey(insert_idx, splitKey, child);
+                newInnerNode->nKey = MAX_INNER_SIZE - mid;
+                
+            }
+            else if (insert_idx > mid) { // insert into new node
+                new_splitKey = parent[mid];
+                parent->nKey = mid;
+                std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
+                std::memmove(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
+                newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+                newInnerNode->addKey(insert_idx - mid, splitKey, child);
+            }
+            else {  // only insert child to new node, splitkey does not change
+                new_splitKey = splitKey;
+                parent->nKey = mid;
+                std::memmove(newInnerNode->keys, parent->keys + mid, (MAX_INNER_SIZE - mid)*sizeof(uint64_t));
+                std::memmove(newInnerNode->p_children + 1, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
+                newInnerNode->p_children[0] = child;
+                newInnerNode->nKey = MAX_INNER_SIZE - mid;
+            }
+
+            splitKey = new_splitKey;
+
+
+            /*
+            InnerNode* newInnerNode = new InnerNode();
+            
             std::array<uint64_t, MAX_INNER_SIZE + 1> temp_keys;
             std::array<BaseNode*, MAX_INNER_SIZE + 2> temp_children;
             size_t key_idx = 0, insert_idx = MAX_INNER_SIZE;
@@ -589,7 +624,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
                 newInnerNode->p_children[++key_idx] = temp_children[i+1];
             }
             newInnerNode->nKey = key_idx;
-            
+            */
             if (parent == root)
             {
                 root = new InnerNode();
