@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cmath>
 
-#define NDEBUG
+// #define NDEBUG
 #include <cassert>
 
 #define MAX_LEAF_SIZE 48
@@ -30,15 +30,15 @@ public:
       }
 
       Bitset(const Bitset& bts) {
-        std::copy(bts.bits, bts.bits + num_bytes, bits);
+        memcpy(&bits, &bts, sizeof(bts));
       }
 
       Bitset& operator=(const Bitset& bts) {
-        std::copy(bts.bits, bts.bits + num_bytes, bits);
+        memcpy(&bits, &bts, sizeof(bts));
+        return *this;
       }
 
       void set(const size_t pos, bool val) {
-        assert(pos < MAX_LEAF_SIZE && "Bitset access out of bound!");
         if (val)
           bits[pos / NUM_OF_BITS] |= (1 << (pos % NUM_OF_BITS));
         else
