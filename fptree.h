@@ -28,12 +28,13 @@
 #include <tbb/spin_rw_mutex.h>
 #include <immintrin.h>
 #include <thread>
+
 #include "bitset.h"
 
 #pragma once
 
 #define TEST_MODE 0
-// #define PMEM 
+#define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
@@ -51,8 +52,7 @@ const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX
 // static tbb::speculative_spin_mutex::scoped_lock scoped_lock();
 
 // static __attribute__((aligned(64))) uint64_t lock_word = 0;
-// static void lock() { while (!__sync_bool_compare_and_swap(&lock_word, 0, 1)) { } }
-// static void unlock() { lock_word = 0; }
+
 
 #ifdef PMEM
     #include <libpmemobj.h>
@@ -115,7 +115,6 @@ struct BaseNode
 public:
     BaseNode();
 } __attribute__((aligned(64)));
-// };
 
 
 
@@ -132,7 +131,7 @@ public:
     InnerNode(const InnerNode& inner);
     ~InnerNode();
 
-    // return index of child when searching key in this innernode
+    // return index of child in p_children when searching key in this innernode
     uint64_t findChildIndex(uint64_t key);
 
     // remove key at index, default remove right child (or left child if false) 
@@ -140,6 +139,9 @@ public:
 
     // add key at index pos, default add child to the right
     void addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right);
+
+    void updateKey(uint64_t key);
+
 } __attribute__((aligned(64)));
 // };
 
@@ -148,8 +150,8 @@ public:
 struct LeafNode : BaseNode
 {
     __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
-    // std::bitset<MAX_LEAF_SIZE> bitmap;
-    Bitset bitmap;
+    std::bitset<MAX_LEAF_SIZE> bitmap;
+    //Bitset bitmap;
     
     KV kv_pairs[MAX_LEAF_SIZE];
 
@@ -193,8 +195,10 @@ public:
     // find and optionally remove the min/max kv in leaf
     KV minKV(bool remove);
     KV maxKV(bool remove);
+
+    void Lock() { while (!__sync_bool_compare_and_swap(&lock, 0, 1)) { } }
+    void Unlock() { lock = 0; }
 } __attribute__((aligned(64)));
-// };
 
 
 
@@ -231,9 +235,9 @@ public:
     inline void clear() { num_nodes = 0; }
 };
 
-static Stack stack_innerNodes;
-static uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
-static InnerNode* INDEX_NODE; // pointer to inner node that contains key
+static thread_local Stack stack_innerNodes;
+static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
+static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
 
 struct FPtree 
 {
@@ -291,9 +295,8 @@ private:
     void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
                                             bool decision, struct KV kv, bool updateFunc, uint64_t prevPos);
 
-    // if parent's children are leaf nodes, assume left child has one child at index 0, right child empty
-    // if parent's children are inner nodes, assume the child with no key has one child at index 0
-    void mergeNodes(InnerNode* parent, uint64_t left_child_idx, uint64_t right_child_idx, uint64_t deleted_key);
+    // merge parent with sibling, may incur further merges. Remove key from indexNode after
+    void removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key);
 
     // try transfer a key from sender to receiver, sender and receiver should be immediate siblings 
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0
@@ -313,4 +316,6 @@ private:
     
     LeafNode* current_leaf;
     uint64_t bitmap_idx;
+
+    friend class Inspector;
 };
