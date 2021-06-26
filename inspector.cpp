@@ -7,11 +7,12 @@
 #include <thread>
 #include <utility>
 #include <stdlib.h>
+#include <chrono>
 
 #include "fptree.h"
 
 
-#define NUM_RECORDS 1000000
+#define NUM_RECORDS 40000000
 
 #define INSERT_RATIO 0
 
@@ -22,6 +23,8 @@
 #define DELETE_RATIO 0
 
 #define MAX_NUM_THREAD 48
+
+static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 
 struct Queue 
 {
@@ -91,8 +94,6 @@ public:
 	uint64_t inner_duplicate_count_;
 	uint64_t inner_invalid_count_;
 };
-
-static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 
 Inspector::Inspector()
 {
@@ -281,43 +282,35 @@ int main()
 
     std::cout << "Key generation complete, start loading...\n";
 
+    auto start = std::chrono::steady_clock::now();
     FPtree fptree;
     for (uint64_t i = 0; i < NUM_RECORDS; i++)
         fptree.insert(KV(keys[i], values[i]));
 
     Inspector ins;
 
-    std::cout << "Loading complete, start testing...\n";
+    std::cout << "Loading complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec). start testing...\n";
 
-    if (ins.SanityCheck(fptree, keys, values))
-    	std::cout << "Sanity check for insertion passed!\n";
-    else
-    	return -1;
+    // if (ins.SanityCheck(fptree, keys, values))
+    // 	std::cout << "Sanity check for insertion passed!\n";
+    // else
+    // 	return -1;
 
     shuffle(keys, values);
-
+    start = std::chrono::steady_clock::now();
     uint64_t half = NUM_RECORDS / 2;
     for (uint64_t i = keys.size() - 1; i >= half; i--)
     	fptree.deleteKey(keys[i]);
-
+    std::cout << "Deletion complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec)\n";
     keys.erase(keys.begin() + half, keys.end());
     values.erase(values.begin() + half, values.end());
 
+  //   if (ins.SanityCheck(fptree, keys, values))
+		// std::cout << "Sanity check for deletion passed!\n";
+  //   else
+  //   	return -1;
 
-	// for (int i=0; i<10; i++) 
-	// {
-	// 	if (!fptree.find(keys[i]))
-	// 		std::cout << "cannot find\n";
-	// }
-	// InnerNode* inner = reinterpret_cast<InnerNode*> (fptree.root);
-	// for (uint64_t i = 0; i< inner->nKey; i++)
-	// {
-	// 	std::cout<< inner->keys[i] << " ";
-	// }
-    if (ins.SanityCheck(fptree, keys, values))
-		std::cout << "Sanity check for deletion passed!\n";
-    else
-    	return -1;
+    fptree.printTSXInfo();
 
 	return 0;
 }

@@ -863,7 +863,7 @@ bool FPtree::deleteKey(uint64_t key)
     LeafNode* leaf, *sibling = nullptr;
     volatile uint64_t kv_idx;
     volatile int retriesLeft = 5;
-    volatile unsigned status;
+    volatile int status;
     InnerNode* indexNode, *parent; 
     volatile uint64_t child_idx;
     volatile bool delete_leaf = false;
@@ -919,7 +919,28 @@ bool FPtree::deleteKey(uint64_t key)
         }
         else 
         {
-            std::cout << "Transaction abort: " << status << std::endl;
+            // std::cout << "Transaction abort: " << status << std::endl;
+            if (status & _XABORT_CONFLICT){
+                conflict_counter++;
+            }
+            if (status & _XABORT_CAPACITY){
+                capacity_counter++;
+            }
+            if (status & _XABORT_DEBUG){
+                debug_counter++;
+            }
+            if ((status & _XABORT_RETRY) == 0){
+                failed_counter++;
+            }
+            if (status & _XABORT_EXPLICIT) {
+                explicit_counter++;
+            }
+            if (status & _XABORT_NESTED) {
+                nester_counter++;
+            }
+            if (status == 0) {
+                zero_counter++;
+            }
             // retriesLeft--;
             // if (retriesLeft < 0) 
             // {
