@@ -33,6 +33,7 @@
 #pragma once
 
 #define TEST_MODE 0
+#define INSPECT_MODE 1
 // #define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
@@ -48,11 +49,7 @@
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
-// static tbb::speculative_spin_mutex::scoped_lock scoped_lock();
-
-// static __attribute__((aligned(64))) uint64_t lock_word = 0;
-// static void lock() { while (!__sync_bool_compare_and_swap(&lock_word, 0, 1)) { } }
-// static void unlock() { lock_word = 0; }
+enum Result { Insert, Split, Abort };  
 
 #ifdef PMEM
     #include <libpmemobj.h>
@@ -115,7 +112,6 @@ struct BaseNode
 public:
     BaseNode();
 } __attribute__((aligned(64)));
-// };
 
 
 
@@ -141,15 +137,14 @@ public:
     // add key at index pos, default add child to the right
     void addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right);
 } __attribute__((aligned(64)));
-// };
 
 
 
 struct LeafNode : BaseNode
 {
     __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
-    // std::bitset<MAX_LEAF_SIZE> bitmap;
-    Bitset bitmap;
+    std::bitset<MAX_LEAF_SIZE> bitmap;
+    // Bitset bitmap;
     
     KV kv_pairs[MAX_LEAF_SIZE];
 
@@ -193,8 +188,10 @@ public:
     // find and optionally remove the min/max kv in leaf
     KV minKV(bool remove);
     KV maxKV(bool remove);
+
+    void _lock() { while (!__sync_bool_compare_and_swap(&this->lock, 0, 1)) { } }
+    void _unlock() { this->lock = 0; }
 } __attribute__((aligned(64)));
-// };
 
 
 
@@ -272,6 +269,10 @@ public:
 
     void printTSXInfo();
 
+    LeafNode* minLeaf(BaseNode* node);
+
+    LeafNode* maxLeaf(BaseNode* node);
+
     //bool bulkLoad();
 
 private:
@@ -289,7 +290,7 @@ private:
     void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
 
     void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
-                                            bool decision, struct KV kv, bool updateFunc, uint64_t prevPos);
+                                            Result decision, struct KV kv, bool updateFunc, uint64_t prevPos);
 
     // if parent's children are leaf nodes, assume left child has one child at index 0, right child empty
     // if parent's children are inner nodes, assume the child with no key has one child at index 0
@@ -301,10 +302,6 @@ private:
     bool tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx);
 
     uint64_t minKey(BaseNode* node);
-
-    LeafNode* minLeaf(BaseNode* node);
-
-    LeafNode* maxLeaf(BaseNode* node);
 
     KV volatile_current_kv[MAX_LEAF_SIZE];
 
