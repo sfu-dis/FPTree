@@ -228,9 +228,12 @@ public:
     inline void clear() { num_nodes = 0; }
 };
 
-static Stack stack_innerNodes;
-static uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
-static InnerNode* INDEX_NODE; // pointer to inner node that contains key
+static thread_local Stack stack_innerNodes;
+static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
+static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
+// static Stack stack_innerNodes;
+// static uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
+// static InnerNode* INDEX_NODE; // pointer to inner node that contains key
 
 struct FPtree 
 {
