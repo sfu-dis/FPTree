@@ -510,7 +510,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
             lock_split.acquire(speculative_lock, false);
             updateParents(splitKey, parentNode, newLeafNode);
-            lock_split_root.release();
+            lock_split.release();
             // updateParents(splitKey, parentNode, newLeafNode);
         }
         else // when inner node size equal to 1 

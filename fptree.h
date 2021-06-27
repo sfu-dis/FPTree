@@ -272,10 +272,6 @@ public:
 
     void printTSXInfo();
 
-    LeafNode* minLeaf(BaseNode* node);
-
-    LeafNode* maxLeaf(BaseNode* node);
-
     //bool bulkLoad();
 
 private:
@@ -306,6 +302,10 @@ private:
 
     uint64_t minKey(BaseNode* node);
 
+    LeafNode* minLeaf(BaseNode* node);
+
+    LeafNode* maxLeaf(BaseNode* node);
+
     KV volatile_current_kv[MAX_LEAF_SIZE];
 
     uint64_t size_volatile_kv;
@@ -313,4 +313,6 @@ private:
     
     LeafNode* current_leaf;
     uint64_t bitmap_idx;
+
+    friend class Inspector;
 };
