@@ -442,7 +442,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     #endif
 
     if (decision == Result::Split)
-    // if (decision == true)
     {
         splitKey = splitLeaf(reachedLeafNode);       // split and link two leaves
         if (kv.key >= splitKey)                      // select one leaf to insert
@@ -485,33 +484,30 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
 
     if (decision == Result::Split)
-    // if (decision == true)
     {   
+        tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
+        lock_insert.acquire(speculative_lock);
+        
+        LeafNode* newLeafNode;
         #ifdef PMEM
-            LeafNode* newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
         #else
-            LeafNode* newLeafNode = reachedLeafNode->p_next;
+            newLeafNode = reachedLeafNode->p_next;
         #endif
 
         if (root->isInnerNode == false)
         {
-            tbb::speculative_spin_rw_mutex::scoped_lock lock_split_root;
-            lock_split_root.acquire(speculative_lock, false);
             root = new InnerNode();
             reinterpret_cast<InnerNode*> (root)->nKey = 1;
             reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
             reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
             reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
-            lock_split_root.release();
+            lock_insert.release();
             return;
         }
         if constexpr (MAX_INNER_SIZE != 1) 
         {
-            tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
-            lock_split.acquire(speculative_lock, false);
             updateParents(splitKey, parentNode, newLeafNode);
-            lock_split.release();
-            // updateParents(splitKey, parentNode, newLeafNode);
         }
         else // when inner node size equal to 1 
         {
@@ -525,6 +521,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             else
                 parentNode->p_children[1] = newInnerNode;
         }
+        lock_insert.release();
     }
 }
 
@@ -655,13 +652,13 @@ bool FPtree::insert(struct KV kv)
                     if (retriesLeft < 0)
                     {
                         insert_abort_counter++;
-                        tbb::speculative_spin_rw_mutex::scoped_lock lock_insert_root;
-                        lock_insert_root.acquire(speculative_lock, false);
-                        if (reinterpret_cast<LeafNode*>(root)->lock) { lock_insert_root.release(); continue; }
+                        tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
+                        lock_insert.acquire(speculative_lock);
+                        if (reinterpret_cast<LeafNode*>(root)->lock) { lock_insert.release(); continue; }
                         reinterpret_cast<LeafNode*>(root)->_lock();
                         reinterpret_cast<LeafNode*>(root)->addKV(kv);
                         reinterpret_cast<LeafNode*>(root)->_unlock();
-                        lock_insert_root.release();
+                        lock_insert.release();
                         return true;
                     }
                 }
@@ -706,7 +703,7 @@ bool FPtree::insert(struct KV kv)
             if (retriesLeft < 0) 
             {
                 tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
-                lock_insert.acquire(speculative_lock, false);
+                lock_insert.acquire(speculative_lock);
 
                 reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
                 parentNode = stack_innerNodes.pop();
