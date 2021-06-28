@@ -505,7 +505,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
             reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
             lock_insert.release();
-            reachedLeafNode->_unlock();
             return;
         }
         if constexpr (MAX_INNER_SIZE != 1) 
@@ -796,7 +795,7 @@ bool FPtree::insert(struct KV kv)
             }
         }
     }
-    
+
     splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv);
 
     stack_innerNodes.clear();
