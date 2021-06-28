@@ -12,7 +12,7 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 40000000
+#define NUM_RECORDS 5000000
 
 #define INSERT_RATIO 0
 

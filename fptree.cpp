@@ -381,18 +381,20 @@ static uint64_t explicit_counter = 0;
 static uint64_t nester_counter = 0;
 static uint64_t zero_counter = 0;
 static uint64_t total_abort_counter = 0;
+static uint64_t speculative_lock_counter = 0;
 
 void FPtree::printTSXInfo() 
 {
     std::cout << "Abort:" << abort_counter << std::endl;
-    std::cout << "conflict_counter:" << conflict_counter << std::endl;
-    std::cout << "capacity_counter:" << capacity_counter << std::endl;
-    std::cout << "debug_counter:" << debug_counter << std::endl;
-    std::cout << "failed_counter:" << failed_counter << std::endl;
-    std::cout << "explicit_counter:" << explicit_counter << std::endl;
-    std::cout << "nester_counter:" << nester_counter << std::endl;
-    std::cout << "zero_counter:" << zero_counter << std::endl;
-    std::cout << "total_abort_counter:" << total_abort_counter << std::endl;
+    std::cout << "conflict_counter: " << conflict_counter << std::endl;
+    std::cout << "capacity_counter: " << capacity_counter << std::endl;
+    std::cout << "debug_counter: " << debug_counter << std::endl;
+    std::cout << "failed_counter: " << failed_counter << std::endl;
+    std::cout << "explicit_counter :" << explicit_counter << std::endl;
+    std::cout << "nester_counter: " << nester_counter << std::endl;
+    std::cout << "zero_counter: " << zero_counter << std::endl;
+    std::cout << "total_abort_counter: " << total_abort_counter << std::endl;
+    std::cout << "speculative_lock_counter: "<< speculative_lock_counter << std::endl;
 }
 
 
@@ -867,20 +869,31 @@ bool FPtree::deleteKey(uint64_t key)
     InnerNode* indexNode, *parent; 
     volatile uint64_t child_idx;
     volatile bool delete_leaf = false;
+    tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     while (true) 
     {
-        if ((status = _xbegin()) == _XBEGIN_STARTED)
+        if (!retriesLeft || (status = _xbegin()) == _XBEGIN_STARTED)
         {
             // Traverse tree, find and lock leaf
             leaf = findLeafAndPushInnerNodes(key);
-            if (leaf->lock) { _xabort(1); continue; }
+            if (leaf->lock) 
+            { 
+                if (retriesLeft)
+                    _xabort(1); 
+                else
+                    lock_delete.release();
+                continue; 
+            }
             leaf->Lock();
             // if key is not present in leaf, release lock and return
             kv_idx = leaf->findKVIndex(key);
             if (kv_idx == MAX_LEAF_SIZE)
             {
                 leaf->Unlock();
-                _xend();
+                if (retriesLeft)
+                    _xend();
+                else
+                    lock_delete.release();
                 return false;
             }
             // get info about parent, leafnode index and indexnode
@@ -903,7 +916,15 @@ bool FPtree::deleteKey(uint64_t key)
                     sibling = nullptr;
                 if (sibling)
                 {
-                    if (sibling->lock) { leaf->Unlock(); _xabort(1); continue; }
+                    if (sibling->lock) 
+                    { 
+                        leaf->Unlock();
+                        if (retriesLeft)
+                            _xabort(1);
+                        else
+                            lock_delete.release();
+                        continue; 
+                    }
                     sibling->Lock();
                     // #ifdef PMEM
                     //     assert((struct LeafNode *) pmemobj_direct((sibling->p_next).oid) == leaf && "Wrong left sibling!");
@@ -914,7 +935,10 @@ bool FPtree::deleteKey(uint64_t key)
                 removeKeyAndMergeInnerNodes(indexNode, parent, child_idx, key);
             }
             //commit and break
-            _xend();
+            if (retriesLeft)
+                _xend();
+            else
+                lock_delete.release();
             break;
         }
         else 
@@ -941,18 +965,12 @@ bool FPtree::deleteKey(uint64_t key)
             if (status == 0) {
                 zero_counter++;
             }
-            // retriesLeft--;
-            // if (retriesLeft < 0) 
-            // {
-            //     total_abort_counter++;
-            //     tbb::speculative_spin_rw_mutex::scoped_lock lock_find;
-            //     lock_find.acquire(speculative_lock, false);
-            //     leaf = findLeaf(key);
-            //     if (leaf->lock) { lock_find.release(); continue; }
-            //     idx = leaf->findKVIndex(key);
-            //     lock_find.release();
-            //     return (idx != MAX_LEAF_SIZE ? leaf->kv_pairs[idx].value : 0 );
-            // }
+            retriesLeft--;
+            if (!retriesLeft)
+            {
+                speculative_lock_counter++;
+                lock_delete.acquire(speculative_lock, true);
+            }
         }
     }
     if (leaf->countKV() <= 1 && !parent) // tree with root and one record only, delete root
