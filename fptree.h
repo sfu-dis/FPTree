@@ -237,7 +237,6 @@ struct FPtree
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
     tbb::speculative_spin_rw_mutex speculative_lock_split;
-    tbb::speculative_spin_rw_mutex speculative_lock_update;
 
 public:
 
