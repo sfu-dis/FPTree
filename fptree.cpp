@@ -493,8 +493,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
     if (decision == Result::Split)
     {   
-        tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
-        lock_insert.acquire(speculative_lock);
+        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
+        lock_split.acquire(speculative_lock);
         
         LeafNode* newLeafNode;
         #ifdef PMEM
@@ -510,7 +510,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
             reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
             reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
-            lock_insert.release();
+            lock_split.release();
             reachedLeafNode->_unlock();
             return;
         }
@@ -530,7 +530,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             else
                 parentNode->p_children[1] = newInnerNode;
         }
-        lock_insert.release();
+        lock_split.release();
     }
 }
 
@@ -620,6 +620,9 @@ bool FPtree::insert(struct KV kv)
 
         if (TOID_IS_NULL(*dst)) 
         {
+            tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
+            lock_insert.acquire(speculative_lock);
+
             struct argLeafNode args;
             args.isInnerNode = false;
             args.size = sizeof(struct LeafNode);
@@ -635,19 +638,20 @@ bool FPtree::insert(struct KV kv)
 
             this->root = (struct BaseNode *) pmemobj_direct((*dst).oid);
 
+            lock_insert.release();
+
             return true;
         }
     #else
         if (root == nullptr) 
         {
-            root = new LeafNode();
-
             volatile unsigned status;
             volatile int retriesLeft = 5;
             while (true) 
             {
                 if ((status = _xbegin ()) == _XBEGIN_STARTED)
                 {
+                    root = new LeafNode();
                     if (reinterpret_cast<LeafNode*>(root)->lock) { _xabort(1); continue; }
                     reinterpret_cast<LeafNode*>(root)->_lock();
                     reinterpret_cast<LeafNode*> (root)->addKV(kv);
@@ -663,6 +667,7 @@ bool FPtree::insert(struct KV kv)
                         insert_abort_counter++;
                         tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
                         lock_insert.acquire(speculative_lock);
+                        root = new LeafNode();
                         if (reinterpret_cast<LeafNode*>(root)->lock) { lock_insert.release(); continue; }
                         reinterpret_cast<LeafNode*>(root)->_lock();
                         reinterpret_cast<LeafNode*>(root)->addKV(kv);
@@ -733,20 +738,6 @@ bool FPtree::insert(struct KV kv)
             }
         }
     }
-    
-    
-    // LeafNode* reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-    // InnerNode* parentNode = stack_innerNodes.pop();
-
-    // // return false if key already exists
-    // uint64_t idx = reachedLeafNode->findKVIndex(kv.key);
-    // if (idx != MAX_LEAF_SIZE)
-    // {
-    //     stack_innerNodes.clear();
-    //     return false;
-    // }
-
-    // bool decision = reachedLeafNode->isFull();
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv);
 
@@ -778,7 +769,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         memcpy(args.fingerprints, leaf->fingerprints, sizeof(leaf->fingerprints));
         memcpy(args.kv_pairs, leaf->kv_pairs, sizeof(leaf->kv_pairs));
         args.bitmap = leaf->bitmap;
-        args.lock = 0;
+        args.lock = 1;
 
         POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
 
@@ -811,7 +802,6 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         leaf->bitmap = newLeafNode->bitmap;
         if constexpr (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
         leaf->p_next = newLeafNode;
-        newLeafNode->_unlock();
     #endif
  
     return splitKey;
@@ -1225,7 +1215,6 @@ bool FPtree::ScanComplete()
 
 /*
     Use case
-
     uint64_t tick = rdtsc();
     Put program between 
     std::cout << rdtsc() - tick << std::endl;
