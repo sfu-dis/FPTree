@@ -373,6 +373,7 @@ static uint64_t nester_counter = 0;
 static uint64_t zero_counter = 0;
 static uint64_t total_abort_counter = 0;
 static uint64_t insert_abort_counter = 0;
+static uint64_t insert_counter = 0;
 
 void FPtree::printTSXInfo() 
 {
@@ -386,6 +387,7 @@ void FPtree::printTSXInfo()
     std::cout << "zero_counter:" << zero_counter << std::endl;
     std::cout << "total_abort_counter:" << total_abort_counter << std::endl;
     std::cout << "insert_abort_counter:" << insert_abort_counter << std::endl;
+    std::cout << "insert_counter:" << insert_counter << std::endl;
 }
 
 
@@ -486,7 +488,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     if (decision == Result::Split)
     {   
         tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
-        lock_insert.acquire(speculative_lock);
+        lock_insert.acquire(speculative_lock_split);
         
         LeafNode* newLeafNode;
         #ifdef PMEM
@@ -503,6 +505,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
             reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
             lock_insert.release();
+            reachedLeafNode->_unlock();
             return;
         }
         if constexpr (MAX_INNER_SIZE != 1) 
@@ -682,7 +685,7 @@ bool FPtree::insert(struct KV kv)
             reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
             parentNode = stack_innerNodes.pop();
         
-            if (reachedLeafNode->lock) { decision = Result::Abort; continue; }
+            if (reachedLeafNode->lock) { decision = Result::Abort; _xabort(1); continue; }
             reachedLeafNode->_lock();
             idx = reachedLeafNode->findKVIndex(kv.key);
             if (idx != MAX_LEAF_SIZE)
@@ -708,13 +711,14 @@ bool FPtree::insert(struct KV kv)
                 reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
                 parentNode = stack_innerNodes.pop();
 
-                if (reachedLeafNode->lock) { lock_insert.release(); continue; }
+                if (reachedLeafNode->lock) { decision = Result::Abort; lock_insert.release(); continue; }
                 reachedLeafNode->_lock();
                 idx = reachedLeafNode->findKVIndex(kv.key);
                 if (idx != MAX_LEAF_SIZE)
                 {
                     reachedLeafNode->_unlock();
                     stack_innerNodes.clear();
+                    lock_insert.release();
                     return false;
                 }
                 decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
@@ -744,8 +748,12 @@ bool FPtree::insert(struct KV kv)
 
     reachedLeafNode->_unlock();
 
-    if (decision == Result::Split) reachedLeafNode->p_next->_unlock();
-
+    #ifdef PMEM
+        if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->_unlock();
+    #else 
+        if (decision == Result::Split) reachedLeafNode->p_next->_unlock();
+    #endif
+    
     return true;
 }
 
@@ -797,6 +805,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         leaf->bitmap = newLeafNode->bitmap;
         if constexpr (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
         leaf->p_next = newLeafNode;
+        newLeafNode->_unlock();
     #endif
  
     return splitKey;
