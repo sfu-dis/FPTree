@@ -589,6 +589,75 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 
 bool FPtree::update(struct KV kv)
 {
+    LeafNode* reachedLeafNode;
+    InnerNode* parentNode;
+    volatile int retriesLeft = 5;
+    volatile unsigned status;
+    volatile uint64_t prevPos;
+    volatile Result decision = Result::Abort;
+    while (decision == Result::Abort)
+    {
+        if ((status = _xbegin ()) == _XBEGIN_STARTED)
+        {   
+            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+            parentNode = stack_innerNodes.pop();
+        
+            if (reachedLeafNode->lock) { decision = Result::Abort; _xabort(1); continue; }
+            reachedLeafNode->_lock();
+            prevPos = reachedLeafNode->findKVIndex(kv.key);
+            if (prevPos == MAX_LEAF_SIZE)  // key not found
+            {
+                reachedLeafNode->_unlock();
+                stack_innerNodes.clear();
+                _xend();
+                return false;
+            }
+            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+            _xend();
+        }
+        else
+        {
+            stack_innerNodes.clear();
+            retriesLeft--;
+            if (retriesLeft < 0) 
+            {
+                tbb::speculative_spin_rw_mutex::scoped_lock lock_update;
+                lock_update.acquire(speculative_lock_update);
+
+                reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+                parentNode = stack_innerNodes.pop();
+
+                if (reachedLeafNode->lock) { decision = Result::Abort; lock_update.release(); continue; }
+                reachedLeafNode->_lock();
+                prevPos = reachedLeafNode->findKVIndex(kv.key);
+                if (prevPos == MAX_LEAF_SIZE)  // key not found
+                {
+                    reachedLeafNode->_unlock();
+                    stack_innerNodes.clear();
+                    lock_update.release();
+                    return false;
+                }
+                decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+
+                lock_update.release();
+            }
+        }
+    }
+
+    splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv, true, prevPos);
+
+    stack_innerNodes.clear();
+
+    reachedLeafNode->_unlock();
+
+    #ifdef PMEM
+        if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->_unlock();
+    #else 
+        if (decision == Result::Split) reachedLeafNode->p_next->_unlock();
+    #endif
+
+    return true;
+    
     // LeafNode* reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
     // InnerNode* parentNode = stack_innerNodes.pop();
 
@@ -728,20 +797,6 @@ bool FPtree::insert(struct KV kv)
         }
     }
     
-    
-    // LeafNode* reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-    // InnerNode* parentNode = stack_innerNodes.pop();
-
-    // // return false if key already exists
-    // uint64_t idx = reachedLeafNode->findKVIndex(kv.key);
-    // if (idx != MAX_LEAF_SIZE)
-    // {
-    //     stack_innerNodes.clear();
-    //     return false;
-    // }
-
-    // bool decision = reachedLeafNode->isFull();
-
     splitLeafAndUpdateInnerParents(reachedLeafNode, parentNode, decision, kv);
 
     stack_innerNodes.clear();
@@ -1314,3 +1369,16 @@ uint64_t rdtsc(){
 //     updateParents(splitKey, parentNode, newLeafNode);
 //     lock_split.release();
 // }
+
+// LeafNode* reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+// InnerNode* parentNode = stack_innerNodes.pop();
+
+// // return false if key already exists
+// uint64_t idx = reachedLeafNode->findKVIndex(kv.key);
+// if (idx != MAX_LEAF_SIZE)
+// {
+//     stack_innerNodes.clear();
+//     return false;
+// }
+
+// bool decision = reachedLeafNode->isFull();

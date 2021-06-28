@@ -34,7 +34,7 @@
 
 #define TEST_MODE 0
 #define INSPECT_MODE 1
-#define PMEM 
+// #define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
@@ -231,15 +231,13 @@ public:
 static thread_local Stack stack_innerNodes;
 static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
 static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
-// static Stack stack_innerNodes;
-// static uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
-// static InnerNode* INDEX_NODE; // pointer to inner node that contains key
 
 struct FPtree 
 {
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
     tbb::speculative_spin_rw_mutex speculative_lock_split;
+    tbb::speculative_spin_rw_mutex speculative_lock_update;
 
 public:
 
