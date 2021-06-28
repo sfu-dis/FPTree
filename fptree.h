@@ -34,6 +34,9 @@
 #pragma once
 
 #define TEST_MODE 0
+
+#define INSPECT_MODE 0
+
 #define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
@@ -49,10 +52,7 @@
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
-// static tbb::speculative_spin_mutex::scoped_lock scoped_lock();
-
-// static __attribute__((aligned(64))) uint64_t lock_word = 0;
-
+enum Result { Insert, Split, Abort };  
 
 #ifdef PMEM
     #include <libpmemobj.h>
@@ -143,7 +143,6 @@ public:
     void updateKey(uint64_t key);
 
 } __attribute__((aligned(64)));
-// };
 
 
 
@@ -151,7 +150,7 @@ struct LeafNode : BaseNode
 {
     __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
     std::bitset<MAX_LEAF_SIZE> bitmap;
-    //Bitset bitmap;
+    // Bitset bitmap;
     
     KV kv_pairs[MAX_LEAF_SIZE];
 
@@ -196,8 +195,9 @@ public:
     KV minKV(bool remove);
     KV maxKV(bool remove);
 
-    void Lock() { while (!__sync_bool_compare_and_swap(&lock, 0, 1)) { } }
-    void Unlock() { lock = 0; }
+
+    void _lock() { while (!__sync_bool_compare_and_swap(&this->lock, 0, 1)) { } }
+    void _unlock() { this->lock = 0; }
 } __attribute__((aligned(64)));
 
 
@@ -239,10 +239,16 @@ static thread_local Stack stack_innerNodes;
 static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
 static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
 
+// static Stack stack_innerNodes;
+// static uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
+// static InnerNode* INDEX_NODE; // pointer to inner node that contains key
+
+
 struct FPtree 
 {
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
+    tbb::speculative_spin_rw_mutex speculative_lock_split;
 
 public:
 
@@ -293,7 +299,7 @@ private:
     void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
 
     void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
-                                            bool decision, struct KV kv, bool updateFunc, uint64_t prevPos);
+                                            Result decision, struct KV kv, bool updateFunc, uint64_t prevPos);
 
     // merge parent with sibling, may incur further merges. Remove key from indexNode after
     void removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key);
