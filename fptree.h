@@ -86,20 +86,6 @@ struct KV
     KV(uint64_t key, uint64_t value) { this->key = key; this->value = value; }
 };
 
-#ifdef PMEM
-    struct argLeafNode {
-        size_t size;
-        bool isInnerNode;
-        std::bitset<MAX_LEAF_SIZE> bitmap;
-        __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
-        KV kv_pairs[MAX_LEAF_SIZE];
-        uint64_t lock;
-    };
-
-
-    static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg);
-#endif
-
 
 /*******************************************************
                   Define node struture 
@@ -160,7 +146,8 @@ struct LeafNode : BaseNode
         LeafNode* p_next;
     #endif
     
-    volatile uint64_t lock;
+    std::atomic<uint64_t> lock;
+    //uint64_t lock;
 
     friend class FPtree;
 
@@ -196,11 +183,62 @@ public:
     KV maxKV(bool remove);
 
 
-    void _lock() { while (!__sync_bool_compare_and_swap(&this->lock, 0, 1)) { } }
-    void _unlock() { this->lock = 0; }
+    void _lock() 
+    { 
+        // uint64_t time = 1;
+        // while (!__sync_bool_compare_and_swap(&this->lock, 0, 1)) 
+        //     { 
+        //         // std::this_thread::sleep_for(std::chrono::milliseconds(time));
+        //         // time *= 2;
+        //     } 
+        uint64_t expected = 0;
+        while (!std::atomic_compare_exchange_strong(&lock, &expected, 1))
+            expected = 0;
+    }
+    void _unlock() 
+    { 
+        uint64_t expected = 1;
+        while (!std::atomic_compare_exchange_strong(&lock, &expected, 0))
+        {
+            std::cout << "Error!\n";
+            expected = 1;
+        }
+        // this->lock = 0; 
+    }
 } __attribute__((aligned(64)));
 
 
+#ifdef PMEM
+    struct argLeafNode {
+        size_t size;
+        bool isInnerNode;
+        std::bitset<MAX_LEAF_SIZE> bitmap;
+        __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
+        KV kv_pairs[MAX_LEAF_SIZE];
+        uint64_t lock;
+
+        argLeafNode(LeafNode* leaf){
+            isInnerNode = false;
+            size = sizeof(struct LeafNode);
+            memcpy(fingerprints, leaf->fingerprints, sizeof(leaf->fingerprints));
+            memcpy(kv_pairs, leaf->kv_pairs, sizeof(leaf->kv_pairs));
+            bitmap = leaf->bitmap;
+            lock = 1;
+        }
+
+        argLeafNode(struct KV kv){
+            isInnerNode = false;
+            size = sizeof(struct LeafNode);
+            kv_pairs[0] = kv;
+            fingerprints[0] = getOneByteHash(kv.key);
+            bitmap.set(0);
+            lock = 0;
+        }
+    };
+
+
+    static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg);
+#endif
 
 #ifdef PMEM
     struct List 
