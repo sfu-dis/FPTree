@@ -762,51 +762,49 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
     InnerNode* temp, *left, *right;
     uint64_t left_idx;
     bool update_indexnode = true;
-    if (parent)
+
+    child_idx == 0? parent->removeKey(child_idx, false) : parent->removeKey(child_idx - 1, true);
+
+    while (!parent->nKey) // parent has no key, merge with sibling
     {
-        child_idx == 0? parent->removeKey(child_idx, false) : parent->removeKey(child_idx - 1, true);
-
-        while (!parent->nKey) // parent has no key, merge with sibling
+        if (parent == root) // entire tree stores 1 kv, convert the only leafnode into root
         {
-            if (parent == root) // entire tree stores 1 kv, convert the only leafnode into root
-            {
-                temp = reinterpret_cast<InnerNode*> (root);
-                root = parent->p_children[0];
-                delete temp;
-                break;         
-            }
+            temp = reinterpret_cast<InnerNode*> (root);
+            root = parent->p_children[0];
+            delete temp;
+            break;         
+        }
 
-            parent = stack_innerNodes.pop();
-            child_idx = parent->findChildIndex(key);
-            left_idx = child_idx;
-            if (!(child_idx != 0 && tryBorrowKey(parent, child_idx, child_idx-1)) && 
-                !(child_idx != parent->nKey && tryBorrowKey(parent, child_idx, child_idx+1))) // if cannot borrow from any siblings
+        parent = stack_innerNodes.pop();
+        child_idx = parent->findChildIndex(key);
+        left_idx = child_idx;
+        if (!(child_idx != 0 && tryBorrowKey(parent, child_idx, child_idx-1)) && 
+            !(child_idx != parent->nKey && tryBorrowKey(parent, child_idx, child_idx+1))) // if cannot borrow from any siblings
+        {
+            if (left_idx != 0)
+                left_idx --;
+            left = reinterpret_cast<InnerNode*> (parent->p_children[left_idx]);
+            right = reinterpret_cast<InnerNode*> (parent->p_children[left_idx + 1]);
+            
+            if (left->nKey == 0)
             {
-                if (left_idx != 0)
-                    left_idx --;
-                left = reinterpret_cast<InnerNode*> (parent->p_children[left_idx]);
-                right = reinterpret_cast<InnerNode*> (parent->p_children[left_idx + 1]);
-                
-                if (left->nKey == 0)
-                {
-                    right->addKey(0, parent->keys[left_idx], left->p_children[0], false);
-                    if (left == indexNode)
-                        update_indexnode = false;
-                    delete left;
-                    parent->removeKey(left_idx, false);
-                }
-                else
-                {
-                    left->addKey(left->nKey, parent->keys[left_idx], right->p_children[0]);
-                    if (right == indexNode)
-                        update_indexnode = false;
-                    delete right;
-                    parent->removeKey(left_idx);
-                }
+                right->addKey(0, parent->keys[left_idx], left->p_children[0], false);
+                if (left == indexNode)
+                    update_indexnode = false;
+                delete left;
+                parent->removeKey(left_idx, false);
             }
             else
-                break;
+            {
+                left->addKey(left->nKey, parent->keys[left_idx], right->p_children[0]);
+                if (right == indexNode)
+                    update_indexnode = false;
+                delete right;
+                parent->removeKey(left_idx);
+            }
         }
+        else
+            break;
     }
     if (indexNode && update_indexnode)
         indexNode->updateKey(key);
@@ -820,20 +818,16 @@ bool FPtree::deleteKey(uint64_t key)
     volatile int status;
     InnerNode* indexNode, *parent; 
     volatile uint64_t child_idx;
-    volatile bool delete_leaf = false;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     while (true) 
     {
         if ((status = _xbegin()) == _XBEGIN_STARTED)
         {
-            // Traverse tree, find and lock leaf
             leaf = findLeafAndPushInnerNodes(key);
             if (leaf->lock) { _xabort(1); continue; }
             leaf->_lock();
-            // if key is not present in leaf, release lock and return
             kv_idx = leaf->findKVIndex(key);
-            if (kv_idx == MAX_LEAF_SIZE) { leaf->_unlock(); _xend(); return false; }
-            // get info about parent, leafnode index and indexnode
+            if (kv_idx == MAX_LEAF_SIZE) { _xend(); leaf->_unlock(); return false; }
             indexNode = INDEX_NODE;
             parent = stack_innerNodes.pop();
             child_idx = CHILD_IDX;
@@ -843,22 +837,26 @@ bool FPtree::deleteKey(uint64_t key)
                 leaf->removeKVByIdx(kv_idx);
                 if (indexNode) // key appears in an inner node
                     indexNode->updateKey(key);
+                _xend();
+                #ifdef PMEM
+                    TOID(struct LeafNode) lf = pmemobj_oid(leaf);
+                    pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
+                #endif
+                leaf->_unlock();
+                return true;
             }
             else if (parent) // may need to transfer/merge inner node
             {
                 // find left sibling and try lock it
-                delete_leaf = true;
-                sibling = key < 2? nullptr : findLeaf(key-1);
-                if (sibling == leaf)
+                if (key > 1 && (sibling = findLeaf(key-1)) == leaf) // TODO: check using stack in future
                     sibling = nullptr;
                 if (sibling)
                 {
-                    if (sibling->lock) { delete_leaf = false; sibling = nullptr; leaf->_unlock(); _xabort(1); continue; }
+                    if (sibling->lock) { _xabort(1); sibling = nullptr; leaf->_unlock(); continue; }
                     sibling->_lock();
                 }
                 removeKeyAndMergeInnerNodes(indexNode, parent, child_idx, key);
             }
-            //commit and break
             _xend();
             break;
         }
@@ -870,14 +868,11 @@ bool FPtree::deleteKey(uint64_t key)
             {
                 speculative_lock_counter++;
                 lock_delete.acquire(speculative_lock, true);
-                // Traverse tree, find and lock leaf
                 leaf = findLeafAndPushInnerNodes(key);
                 if (leaf->lock) { lock_delete.release(); continue; }
                 leaf->_lock();
-                // if key is not present in leaf, release lock and return
                 kv_idx = leaf->findKVIndex(key);
-                if (kv_idx == MAX_LEAF_SIZE) { leaf->_unlock(); lock_delete.release(); return false; }
-                // get info about parent, leafnode index and indexnode
+                if (kv_idx == MAX_LEAF_SIZE) { lock_delete.release(); leaf->_unlock(); return false; }
                 indexNode = INDEX_NODE;
                 parent = stack_innerNodes.pop();
                 child_idx = CHILD_IDX;
@@ -887,80 +882,64 @@ bool FPtree::deleteKey(uint64_t key)
                     leaf->removeKVByIdx(kv_idx);
                     if (indexNode) // key appears in an inner node
                         indexNode->updateKey(key);
+                    lock_delete.release();
+                    #ifdef PMEM
+                        TOID(struct LeafNode) lf = pmemobj_oid(leaf);
+                        pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
+                    #endif
+                    leaf->_unlock();
+                    return true;
                 }
                 else if (parent) // may need to transfer/merge inner node
                 {
                     // find left sibling and try lock it
-                    delete_leaf = true;
-                    sibling = key < 2? nullptr : findLeaf(key-1);
-                    if (sibling == leaf)
+                    if (key > 1 && (sibling = findLeaf(key-1)) == leaf) // TODO: check using stack in future
                         sibling = nullptr;
                     if (sibling)
                     {
-                        if (sibling->lock) { delete_leaf = false; sibling = nullptr; leaf->_unlock(); lock_delete.release(); continue; }
+                        if (sibling->lock) { lock_delete.release(); sibling = nullptr; leaf->_unlock(); continue; }
                         sibling->_lock();
                     }
                     removeKeyAndMergeInnerNodes(indexNode, parent, child_idx, key);
                 }
-                //commit and break
                 lock_delete.release();
                 break;
             }
         }
     }
-    if (leaf->countKV() <= 1 && !parent) // tree with root and one record only, delete root
-    {
-        #ifdef PMEM
-            TOID(struct LeafNode) rt = pmemobj_oid(root);
-            POBJ_FREE(&rt);
-            TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
-            D_RW(ListHead)->head = OID_NULL; 
-            pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
-        #else
-            delete root;
-        #endif
-        root = nullptr;
-        return true;
-    }
 
     #ifdef PMEM
         TOID(struct LeafNode) lf = pmemobj_oid(leaf);
-        if (delete_leaf)
+        if (sibling) // set and persist sibling's p_next, then unlock sibling node
         {
-            if (sibling) // set and persist sibling's p_next, then unlock sibling node
-            {
-                TOID(struct LeafNode) sib = pmemobj_oid(sibling);
-                D_RW(sib)->p_next = D_RO(lf)->p_next;
-                pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
-                sibling->_unlock();
-            }
-            else // the node to delete is left most node, set and persist list head instead
-            {
-                TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
-                D_RW(ListHead)->head = D_RO(lf)->p_next; 
-                pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
-            }
-            POBJ_FREE(&lf);
-            leaf = nullptr;
+            TOID(struct LeafNode) sib = pmemobj_oid(sibling);
+            D_RW(sib)->p_next = D_RO(lf)->p_next;
+            pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
+            sibling->_unlock();
+        }
+        else if (parent) // the node to delete is left most node, set and persist list head instead
+        {
+            TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+            D_RW(ListHead)->head = D_RO(lf)->p_next; 
+            pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
         }
         else
         {
-            pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
-            leaf->_unlock();
+            TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+            D_RW(ListHead)->head = OID_NULL; 
+            pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
+            root = nullptr;
         }
+        POBJ_FREE(&lf);
     #else
-        if (delete_leaf)
+        if (sibling)
         {
-            if (sibling)
-            {
-                sibling->p_next = leaf->p_next;
-                sibling->_unlock();
-            }
-            delete leaf; 
-            leaf = nullptr;
+            sibling->p_next = leaf->p_next;
+            sibling->_unlock();
         }
-        else
-            leaf->_unlock();
+        else if (!parent)
+            root = nullptr;
+        delete leaf;
     #endif
     return true;
     // if constexpr (MAX_INNER_SIZE == 1)
