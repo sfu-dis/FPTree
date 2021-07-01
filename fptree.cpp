@@ -187,7 +187,7 @@ KV LeafNode::maxKV(bool remove = false)
             max_key = this->kv_pairs[i].key;
             max_key_idx = i;
         }
-    assert(min_key_idx >= 0 && min_key_idx < MAX_LEAF_SIZE && "maxKV out of bound");
+    assert(max_key_idx >= 0 && max_key_idx < MAX_LEAF_SIZE && "maxKV out of bound");
     if (remove)
         bitmap.set(max_key_idx, 0);
     return this->kv_pairs[max_key_idx];
@@ -661,11 +661,11 @@ bool FPtree::insert(struct KV kv)
         }
         else
         {
-            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            insert_abort_counter++;
             retriesLeft--;
             if (retriesLeft < 0) 
             {
+                insert_abort_counter++;
+                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
                 lock_insert.acquire(speculative_lock);
                 reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
                 if (reachedLeafNode->lock) { lock_insert.release(); continue; }
@@ -862,11 +862,11 @@ bool FPtree::deleteKey(uint64_t key)
         }
         else 
         {
-            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             retriesLeft--;
-            if (!retriesLeft)
+            if (retriesLeft < 0)
             {
                 speculative_lock_counter++;
+                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
                 lock_delete.acquire(speculative_lock, true);
                 leaf = findLeafAndPushInnerNodes(key);
                 if (leaf->lock) { lock_delete.release(); continue; }

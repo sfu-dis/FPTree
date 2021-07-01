@@ -14,7 +14,6 @@
 #include <utility>
 #include <time.h>   
 #include <tuple>
-#include <cassert>
 #include <atomic>
 #include <queue> 
 #include <string.h> 
@@ -28,6 +27,9 @@
 #include <tbb/spin_rw_mutex.h>
 #include <immintrin.h>
 #include <thread>
+
+#define NDEBUG
+#include <cassert>
 
 #include "bitset.h"
 

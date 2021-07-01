@@ -12,7 +12,7 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 2000000
+#define NUM_RECORDS 5000000
 
 #define INSERT_RATIO 0
 
@@ -297,19 +297,19 @@ int main()
     else
     	return -1;
 
-    // shuffle(keys, values);
-    // start = std::chrono::steady_clock::now();
-    // uint64_t half = NUM_RECORDS / 2;
-    // for (uint64_t i = keys.size() - 1; i >= half; i--)
-    // 	fptree.deleteKey(keys[i]);
-    // std::cout << "Deletion complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec)\n";
-    // keys.erase(keys.begin() + half, keys.end());
-    // values.erase(values.begin() + half, values.end());
+    shuffle(keys, values);
+    start = std::chrono::steady_clock::now();
+    uint64_t half = NUM_RECORDS / 2;
+    for (uint64_t i = keys.size() - 1; i >= half; i--)
+    	fptree.deleteKey(keys[i]);
+    std::cout << "Deletion complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec)\n";
+    keys.erase(keys.begin() + half, keys.end());
+    values.erase(values.begin() + half, values.end());
 
-  //   if (ins.SanityCheck(fptree, keys, values))
-		// std::cout << "Sanity check for deletion passed!\n";
-  //   else
-  //   	return -1;
+    if (ins.SanityCheck(fptree, keys, values))
+		std::cout << "Sanity check for deletion passed!\n";
+    else
+    	return -1;
 
     fptree.printTSXInfo();
 
