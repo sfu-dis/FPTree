@@ -12,7 +12,7 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 5000000
+#define NUM_RECORDS 10000000
 
 #define INSERT_RATIO 0
 
@@ -23,6 +23,10 @@
 #define DELETE_RATIO 0
 
 #define MAX_NUM_THREAD 48
+
+#define CHECK_INSERT 0
+
+#define CHECK_DELETE 1
 
 static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 
@@ -291,11 +295,12 @@ int main()
 
     std::cout << "Loading complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec). start testing...\n";
 
-
-    if (ins.SanityCheck(fptree, keys, values))
-    	std::cout << "Sanity check for insertion passed!\n";
-    else
-    	return -1;
+    #if CHECK_INSERT == 1
+	    if (ins.SanityCheck(fptree, keys, values))
+	    	std::cout << "Sanity check for insertion passed!\n";
+	    else
+	    	return -1;
+	#endif
 
     shuffle(keys, values);
     start = std::chrono::steady_clock::now();
@@ -306,10 +311,12 @@ int main()
     keys.erase(keys.begin() + half, keys.end());
     values.erase(values.begin() + half, values.end());
 
-    if (ins.SanityCheck(fptree, keys, values))
-		std::cout << "Sanity check for deletion passed!\n";
-    else
-    	return -1;
+    #if CHECK_DELETE == 1
+	    if (ins.SanityCheck(fptree, keys, values))
+			std::cout << "Sanity check for deletion passed!\n";
+	    else
+	    	return -1;
+	#endif
 
     fptree.printTSXInfo();
 

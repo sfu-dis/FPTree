@@ -82,7 +82,7 @@ public:
       }
 
       size_t count() {
-        size_t count = 0, i, j;
+        size_t count = 0, i;
         unsigned char c;
         for (i = 0; i < iter; i++) {
           c = bits[i];

@@ -28,7 +28,7 @@
 #include <immintrin.h>
 #include <thread>
 
-#define NDEBUG
+//#define NDEBUG
 #include <cassert>
 
 #include "bitset.h"
@@ -54,7 +54,7 @@
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
-enum Result { Insert, Split, Abort };  
+enum Result { Insert, Split, Abort, Delete, Remove, NotFound };  
 
 #ifdef PMEM
     #include <libpmemobj.h>
@@ -128,11 +128,16 @@ public:
     // add key at index pos, default add child to the right
     void addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right);
 
-    void updateKey(uint64_t key);
+    void updateKey(uint64_t old_key, uint64_t new_key);
 
 } __attribute__((aligned(64)));
 
-
+struct LeafNodeStat
+{
+    uint64_t kv_idx;    // bitmap index of key
+    uint64_t count;     // number of kv in leaf 
+    uint64_t min_key;   // min key except key
+};
 
 struct LeafNode : BaseNode
 {
@@ -180,33 +185,34 @@ public:
     // find number of valid kv pairs in leaf
     uint64_t countKV(){ return this->bitmap.count(); }
 
-    // find and optionally remove the min/max kv in leaf
-    KV minKV(bool remove);
-    KV maxKV(bool remove);
+    // return min key in leaf
+    uint64_t minKey();
 
+    inline uint64_t firstKey(){ return kv_pairs[bitmap._Find_first()].key; }
 
     void _lock() 
     { 
-        // uint64_t time = 1;
-        // while (!__sync_bool_compare_and_swap(&this->lock, 0, 1)) 
-        //     { 
-        //         // std::this_thread::sleep_for(std::chrono::milliseconds(time));
-        //         // time *= 2;
-        //     } 
         uint64_t expected = 0;
         while (!std::atomic_compare_exchange_strong(&lock, &expected, 1))
             expected = 0;
     }
     void _unlock() 
     { 
-        uint64_t expected = 1;
-        while (!std::atomic_compare_exchange_strong(&lock, &expected, 0))
-        {
-            std::cout << "Error!\n";
-            expected = 1;
-        }
-        // this->lock = 0; 
+        this->lock = 0; 
     }
+
+    bool Lock()
+    {
+        uint64_t expected = 0;
+        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+    }
+    void Unlock()
+    {
+        this->lock = 0; 
+    }
+
+    void getStat(uint64_t key, LeafNodeStat& lstat);
+
 } __attribute__((aligned(64)));
 
 
@@ -249,7 +255,6 @@ public:
     };
 #endif
 
-
 struct Stack 
 {
 public:
@@ -266,7 +271,7 @@ public:
         this->innerNodes[num_nodes++] = node;
     }
 
-    inline InnerNode* pop() { return num_nodes == 0 ? nullptr : this->innerNodes[--num_nodes]; }
+    InnerNode* pop() { return num_nodes == 0 ? nullptr : this->innerNodes[--num_nodes]; }
 
     inline bool isEmpty() { return num_nodes == 0; }
 
@@ -278,6 +283,7 @@ public:
 static thread_local Stack stack_innerNodes;
 static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
 static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
+static thread_local uint64_t INDEX_KEY_IDX; // child index of INDEX_NODE
 
 struct FPtree 
 {
@@ -324,6 +330,8 @@ private:
     // return leaf that may contain key, does not push inner nodes
     LeafNode* findLeaf(uint64_t key);
 
+    InnerNode* findParent(BaseNode* child, uint64_t key);
+
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
 
@@ -343,6 +351,8 @@ private:
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0
     // return false if cannot borrow key from sender
     bool tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx);
+
+    LeafNode* leftSibling(uint64_t key);
 
     uint64_t minKey(BaseNode* node);
 
