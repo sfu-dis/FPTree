@@ -54,12 +54,12 @@
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
-enum Result { Insert, Split, Abort, Delete, Remove, NotFound };  
+enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };  
 
 #ifdef PMEM
     #include <libpmemobj.h>
 
-    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 5) * 1000)  /* 1 * 1000 MiB */
+    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 11) * 1000)  /* 1 * 1000 MiB */
 
     POBJ_LAYOUT_BEGIN(List);
     POBJ_LAYOUT_ROOT(List, struct List);
@@ -289,7 +289,6 @@ struct FPtree
 {
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
-    tbb::speculative_spin_rw_mutex speculative_lock_split;
 
 public:
 
