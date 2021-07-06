@@ -28,7 +28,7 @@
 #include <immintrin.h>
 #include <thread>
 
-//#define NDEBUG
+#define NDEBUG
 #include <cassert>
 
 #include "bitset.h"

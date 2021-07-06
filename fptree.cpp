@@ -879,7 +879,7 @@ bool FPtree::deleteKey(uint64_t key)
     LeafNode* leaf, *sibling = nullptr;
     InnerNode* indexNode, *parent; 
     uint64_t child_idx;
-    unsigned status, retriesLeft = 5;
+    int status, retriesLeft = 5;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     Result decision = Result::Abort;
     LeafNodeStat lstat;
