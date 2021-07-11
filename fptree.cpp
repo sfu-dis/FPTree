@@ -824,13 +824,12 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
 void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key)
 {
     InnerNode* temp, *left, *right;
-    uint64_t left_idx;
+    uint64_t left_idx, new_key;
 
     if (child_idx == 0)
     {
+        new_key = parent->keys[0];
         parent->removeKey(child_idx, false);
-        if (indexNode && indexNode != parent && indexNode->keys[INDEX_KEY_IDX] == key)
-            indexNode->keys[INDEX_KEY_IDX] = reinterpret_cast<LeafNode*> (parent->p_children[child_idx+1])->firstKey();
     }
     else
         parent->removeKey(child_idx - 1, true);
@@ -844,7 +843,6 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
             delete temp;
             break;         
         }
-
         parent = stack_innerNodes.pop();
         child_idx = parent->findChildIndex(key);
         left_idx = child_idx;
@@ -855,23 +853,29 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
                 left_idx --;
             left = reinterpret_cast<InnerNode*> (parent->p_children[left_idx]);
             right = reinterpret_cast<InnerNode*> (parent->p_children[left_idx + 1]);
-            
+
             if (left->nKey == 0)
             {
                 right->addKey(0, parent->keys[left_idx], left->p_children[0], false);
                 delete left;
+                if (left == indexNode)
+                    indexNode = nullptr;
                 parent->removeKey(left_idx, false);
             }
             else
             {
                 left->addKey(left->nKey, parent->keys[left_idx], right->p_children[0]);
                 delete right;
+                if (right == indexNode)
+                    indexNode = nullptr;
                 parent->removeKey(left_idx);
             }
         }
         else
             break;
     }
+    if (indexNode && indexNode != parent && indexNode->keys[INDEX_KEY_IDX] == key)
+            indexNode->keys[INDEX_KEY_IDX] = new_key;
 }
 
 bool FPtree::deleteKey(uint64_t key)
@@ -895,7 +899,10 @@ bool FPtree::deleteKey(uint64_t key)
             leaf->getStat(key, lstat);
             
             if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
+            {
                 decision = Result::NotFound;
+                leaf->Unlock();
+            }
             else if (lstat.count > 1)   // leaf contains key and other keys
             {
                 if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key) // key appears in an inner node
@@ -930,7 +937,10 @@ bool FPtree::deleteKey(uint64_t key)
                 leaf->getStat(key, lstat);
                 
                 if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
+                {
                     decision = Result::NotFound;
+                    leaf->Unlock();
+                }
                 else if (lstat.count > 1)   // leaf contains key and other keys
                 {
                     if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key) // key appears in an inner node
@@ -960,6 +970,7 @@ bool FPtree::deleteKey(uint64_t key)
             TOID(struct LeafNode) lf = pmemobj_oid(leaf);
             pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
         #endif
+        leaf->Unlock();
     }
     else if (decision == Result::Delete)
     {
@@ -997,7 +1008,6 @@ bool FPtree::deleteKey(uint64_t key)
             delete leaf;
         #endif
     }
-    leaf->Unlock();
     return decision != Result::NotFound;
     // if constexpr (MAX_INNER_SIZE == 1)
     // {
