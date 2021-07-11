@@ -39,7 +39,7 @@ InnerNode::~InnerNode()
     LeafNode::LeafNode() 
     {
         this->isInnerNode = false;
-        this->bitmap.reset();
+        this->bitmap.clear();
         this->p_next = nullptr;
         this->lock = 0;
     }
@@ -110,14 +110,15 @@ inline void InnerNode::updateKey(uint64_t old_key, uint64_t new_key)
 
 inline uint64_t LeafNode::findFirstZero()
 {
-    std::bitset<MAX_LEAF_SIZE> b = bitmap;
-    return b.flip()._Find_first();
+    Bitset b = bitmap;
+    b.flip();
+    return b.first_set();
 }
 
 inline void LeafNode::addKV(struct KV kv)
 {
     uint64_t idx = this->findFirstZero();
-    assert(idx != MAX_LEAF_SIZE && "Insert kv out of bound!");
+    assert(idx < MAX_LEAF_SIZE && "Insert kv out of bound!");
     this->fingerprints[idx] = getOneByteHash(kv.key);
     this->kv_pairs[idx] = kv;
     this->bitmap.set(idx);
@@ -133,7 +134,7 @@ inline uint64_t LeafNode::removeKV(uint64_t key)
 inline uint64_t LeafNode::removeKVByIdx(uint64_t pos)
 {
     assert(this->bitmap.test(pos) == true);
-    this->bitmap.set(pos, 0);
+    this->bitmap.reset(pos);
     return this->kv_pairs[pos].value;
 }
 
@@ -257,8 +258,9 @@ inline static uint8_t getOneByteHash(uint64_t key)
 #ifdef PMEM
     inline uint64_t findFirstZero(TOID(struct LeafNode) *dst)
     {
-        std::bitset<MAX_LEAF_SIZE> b = D_RW(*dst)->bitmap;
-        return b.flip()._Find_first();
+        Bitset b = D_RW(*dst)->bitmap;
+        b.flip();
+        return b.first_set();
     }
 
     static void showList()
@@ -471,9 +473,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     if constexpr (MAX_LEAF_SIZE == 1) 
     {
         #ifdef PMEM
-            D_RW(insertNode)->bitmap.set(0, 0);
+            D_RW(insertNode)->bitmap.reset(0);
         #else
-            insertNode->bitmap.set(0, 0);
+            insertNode->bitmap.reset(0);
         #endif
         splitKey = std::max(kv.key, splitKey);
     }
@@ -492,8 +494,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         else 
         {
-            std::bitset<MAX_LEAF_SIZE> tmpBitmap = D_RW(insertNode)->bitmap;
-            tmpBitmap.set(prevPos, 0); tmpBitmap.set(slot);
+            Bitset tmpBitmap = D_RW(insertNode)->bitmap;
+            tmpBitmap.reset(prevPos); tmpBitmap.set(slot);
             D_RW(insertNode)->bitmap = tmpBitmap;
         }
         pmemobj_persist(pop, &D_RO(insertNode)->bitmap, sizeof(D_RO(insertNode)->bitmap));
@@ -776,7 +778,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
         {
             if (D_RO(*dst)->kv_pairs[i].key < splitKey)
-                D_RW(*dst)->bitmap.set(i, 0);
+                D_RW(*dst)->bitmap.reset(i);
         }
         pmemobj_persist(pop, &D_RO(*dst)->bitmap, sizeof(D_RO(*dst)->bitmap));
 
@@ -794,7 +796,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
         {
             if (newLeafNode->kv_pairs[i].key < splitKey)
-                newLeafNode->bitmap.set(i, 0);
+                newLeafNode->bitmap.reset(i);
         }
 
         leaf->bitmap = newLeafNode->bitmap;
