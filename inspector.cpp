@@ -24,9 +24,9 @@
 
 #define MAX_NUM_THREAD 48
 
-#define CHECK_INSERT 0
+#define CHECK_INSERT 1
 
-#define CHECK_DELETE 1
+#define CHECK_DELETE
 
 static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 

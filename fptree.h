@@ -35,8 +35,6 @@
 
 #define TEST_MODE 0
 
-#define INSPECT_MODE 0
-
 #define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
@@ -315,7 +313,6 @@ public:
         }
     };
 
-
     static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg);
 #endif
 
@@ -349,6 +346,16 @@ public:
     inline InnerNode* top() { return num_nodes == 0 ? nullptr : this->innerNodes[num_nodes - 1]; }
 
     inline void clear() { num_nodes = 0; }
+
+    inline void printStack() 
+    {
+        for (uint64_t i = 0; i < this->num_nodes; i++)
+        {
+            for (uint64_t j = 0; j < innerNodes[i]->nKey; j++)
+                std::cout << innerNodes[i]->keys[j] << " ";
+            std::cout << "\n";
+        }
+    }
 };
 
 static thread_local Stack stack_innerNodes;
@@ -360,6 +367,8 @@ struct FPtree
 {
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
+
+    InnerNode* right_most_innnerNode;
 
 public:
 
@@ -393,7 +402,9 @@ public:
 
     void printTSXInfo();
 
-    //bool bulkLoad();
+    #ifdef PMEM
+        bool bulkLoad(float load_factor);
+    #endif
 
 private:
 

@@ -218,16 +218,14 @@ FPtree::FPtree()
         if (file_pool_exists(path) == 0) 
         {
             if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
-            {
                 perror("failed to create pool\n");
-            }
         } 
         else 
         {
             if ((pop = pmemobj_open(path, POBJ_LAYOUT_NAME(FPtree))) == NULL)
-            {
                 perror("failed to open pool\n");
-            }
+            else 
+                bulkLoad(1);
         }
     #else
         bitmap_idx = MAX_LEAF_SIZE;
@@ -1174,6 +1172,60 @@ bool FPtree::ScanComplete()
 }
 
 
+#ifdef PMEM
+    bool FPtree::bulkLoad(float load_factor = 1)
+    {
+        TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+        TOID(struct LeafNode) cursor = D_RW(ListHead)->head;
+
+        if (TOID_IS_NULL(cursor)) { this->root = nullptr; return true; }
+
+        if (TOID_IS_NULL(D_RO(cursor)->p_next)) 
+            { root = (struct BaseNode *) pmemobj_direct(cursor.oid); return true;}
+
+        std::vector<uint64_t> min_keys;
+        std::vector<LeafNode*> child_nodes;
+        uint64_t total_leaves = 0;
+        LeafNode* temp_leafnode;
+        while(!TOID_IS_NULL(cursor))   // record min keys and leaf nodes 
+        {
+            temp_leafnode = (struct LeafNode *) pmemobj_direct(cursor.oid);
+            child_nodes.push_back(temp_leafnode);
+            min_keys.push_back(temp_leafnode->minKey());
+            cursor = D_RW(cursor)->p_next;
+        }
+        total_leaves = min_keys.size();
+        min_keys.erase(min_keys.begin());
+
+        InnerNode* new_root = new InnerNode();
+        uint64_t idx = 0;
+        uint64_t root_size = total_leaves <= MAX_INNER_SIZE ? 
+                             total_leaves : MAX_INNER_SIZE + 1;
+        for (; idx < root_size; idx++)     // recovery the root node
+        {   
+            if (idx < root_size - 1)
+                new_root->keys[idx] = min_keys[idx];
+            new_root->p_children[idx] = child_nodes[idx];
+        }
+        new_root->nKey = root_size - 1;
+        this->root = reinterpret_cast<BaseNode*> (new_root);
+
+        if (total_leaves > MAX_INNER_SIZE)
+        {
+            idx--;
+            right_most_innnerNode = reinterpret_cast<InnerNode*>(this->root); 
+            for (; idx < min_keys.size(); idx++)   // Index entries for leaf pages always entered into right-most index page
+            {
+                findLeafAndPushInnerNodes(min_keys[idx]);
+                right_most_innnerNode = stack_innerNodes.pop();
+                updateParents(min_keys[idx], right_most_innnerNode, child_nodes[idx+1]);
+            }
+        }
+        
+        return true;
+    }
+#endif
+
 
 /*
     Use case
@@ -1189,142 +1241,68 @@ uint64_t rdtsc(){
 
 
 
-// #if TEST_MODE == 1
-//     int main(int argc, char *argv[]) 
-//     {
-//         FPtree fptree;
+#if TEST_MODE == 1
+    int main(int argc, char *argv[]) 
+    {
+        srand( (unsigned) time(NULL) * getpid());
+        FPtree fptree;
 
-//         #ifdef PMEM
-//             const char* command = argv[1];
-//             if (command != NULL && strcmp(command, "show") == 0)
-//             {  
-//                 showList();
-//                 return 0;
-//             }
-//         #endif
+        #ifdef PMEM
+            const char* command = argv[1];
+            if (command != NULL && strcmp(command, "show") == 0)
+            {  
+                showList();
+                return 0;
+            }
+        #endif
 
-//         int64_t key;
-//         uint64_t value;
-//         while (true)
-//         {
-//             std::cout << "\nEnter the key to insert, delete or update (-1): "; 
-//             std::cin >> key;
-//             std::cout << std::endl;
-//             KV kv = KV(key, key);
-//             if (key == 0)
-//                 break;
-//             else if (key == -1)
-//             {
-//                 std::cout << "\nEnter the key to update: ";
-//                 std::cin >> key;
-//                 std::cout << "\nEnter the value to update: ";
-//                 std::cin >> value;
-//                 fptree.update(KV(key, value));
-//             }
-//             else if (fptree.find(kv.key))
-//                 fptree.deleteKey(kv.key);
-//             else
-//             {
-//                 fptree.insert(kv);
-//             }
-//             fptree.printFPTree("├──", fptree.getRoot());
-//             #ifdef PMEM
-//                 std::cout << std::endl;
-//                 std::cout << "show list: " << std::endl;
-//                 showList();
-//             #endif
-//         }
+        int64_t key;
+        uint64_t value;
+        while (true)
+        {
+            fptree.printFPTree("├──", fptree.getRoot());
+            std::cout << "\nEnter the key to insert, delete or update (-1): "; 
+            std::cin >> key;
+            std::cout << std::endl;
+            KV kv = KV(key, key);
+            if (key == 0)
+                break;
+            else if (key == -1)
+            {
+                std::cout << "\nEnter the key to update: ";
+                std::cin >> key;
+                std::cout << "\nEnter the value to update: ";
+                std::cin >> value;
+                fptree.update(KV(key, value));
+            }
+            else if (fptree.find(kv.key))
+                fptree.deleteKey(kv.key);
+            else
+            {
+                // fptree.insert(kv);
+                if (!fptree.getRoot())
+                    for (size_t i = 0; i < 6000; i++)
+                        fptree.insert(KV(rand() % 6000 + 2, 1));
+                else
+                    fptree.insert(kv);
+            }
+            // fptree.printFPTree("├──", fptree.getRoot());
+            #ifdef PMEM
+                std::cout << std::endl;
+                std::cout << "show list: " << std::endl;
+                showList();
+            #endif
+        }
 
-
-//         std::cout << "\nEnter the key to initialize scan: "; 
-//         std::cin >> key;
-//         std::cout << std::endl;
-//         fptree.ScanInitialize(key);
-//         while(!fptree.ScanComplete())
-//         {
-//             KV kv = fptree.ScanNext();
-//             std::cout << kv.key << "," << kv.value << " ";
-//         }
-//         std::cout << std::endl;
-//     }
-// #elif INSPECT_MODE == 0
-//     int main(int argc, char *argv[]) 
-//     {   
-//         uint64_t NUM_OPS = 500000;
-//         double elapsed;
-//         bool unmatch_result = true;
-//         uint64_t unmatch_counter = 0;
-
-//         /* Key value generator */
-//         std::independent_bits_engine<std::default_random_engine, 64, uint64_t> rbe;
-//         std::vector<uint64_t> keys(NUM_OPS);
-//         std::generate(begin(keys), end(keys), std::ref(rbe));
-        
-//         std::vector<uint64_t> values(NUM_OPS);
-//         // uint64_t check_values[NUM_OPS] = {0};
-//         std::generate(begin(values), end(values), std::ref(rbe));
-
-//         /* Loading phase */
-//         FPtree fptree;
-//         for (uint64_t i = 0; i < NUM_OPS; i++)
-//             fptree.insert(KV(keys[i], values[i]));
-
-//         /* Testing phase */
-//         // std::generate(begin(keys), end(keys), std::ref(rbe));
-//         // std::generate(begin(values), end(values), std::ref(rbe));
-
-//         std::cout << "Start testing phase...." << std::endl;
-
-//         auto t1 = std::chrono::high_resolution_clock::now();
-//         for (uint64_t i = 0; i < NUM_OPS; i++) 
-//             fptree.find(keys[i]);
-//         auto t2 = std::chrono::high_resolution_clock::now();
-
-//         std::cout << "Start checking phase...." << std::endl;
-
-
-//         // for (uint64_t i = 0; i < NUM_OPS; i++) {
-//         //     if (values[i] != check_values[i]) {
-//         //         std::cout << i << " " << check_values[i] << "  " << values[i] << std::endl;
-//         //         unmatch_counter++;
-//         //     }
-//         // }
-
-//         // std::cout << "unmatch_counter: " << unmatch_counter << std::endl;
-//         // std::cout << "Checking result: " << unmatch_result << std::endl;
-
-//         fptree.printTSXInfo();
-
-//         // uint64_t tick = rdtsc();
-//         // for (uint64_t i = 0; i < NUM_OPS; i++)
-//         //     fptree.insert(KV(keys[i], values[i]));
-//         // uint64_t cycles = rdtsc() - tick;
-
-//         /* Getting number of milliseconds as a double */
-//         std::chrono::duration<double, std::milli> ms_double = t2 - t1;
-
-//         // /* Get stats */
-//         elapsed = ms_double.count();
-//         std::cout << "\tRun time: " << elapsed << " milliseconds" << std::endl;
-//         std::cout << "\tThroughput: " << std::fixed << NUM_OPS / ( (float)elapsed / 1000 )
-//                 << " ops/s" << std::endl;
-//         // std::cout << "\tCPU cycles per operation: " << cycles / NUM_OPS << " cycles/op" << std::endl;
-//     }
-
-// #endif
-
-
-// volatile unsigned status;
-// if ((status = _xbegin ()) == _XBEGIN_STARTED)
-// {
-//     updateParents(splitKey, parentNode, newLeafNode);
-//     _xend();
-// }
-// else
-// {
-//     insert_abort_counter++;
-//     tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
-//     lock_split.acquire(speculative_lock, false);
-//     updateParents(splitKey, parentNode, newLeafNode);
-//     lock_split.release();
-// }
+        std::cout << "\nEnter the key to initialize scan: "; 
+        std::cin >> key;
+        std::cout << std::endl;
+        fptree.ScanInitialize(key);
+        while(!fptree.ScanComplete())
+        {
+            KV kv = fptree.ScanNext();
+            std::cout << kv.key << "," << kv.value << " ";
+        }
+        std::cout << std::endl;
+    }
+#endif
