@@ -3,10 +3,10 @@
 #include <iostream>
 #include <string>
 #include <cstdint>
+#include <cstring>
 #include <stdint.h>
 #include <sys/types.h>
 #include <bits/hash_bytes.h>
-#include <bitset>
 #include <cmath>
 #include <algorithm>  
 #include <array>
@@ -31,8 +31,6 @@
 #define NDEBUG
 #include <cassert>
 
-#include "bitset.h"
-
 #pragma once
 
 #define TEST_MODE 0
@@ -52,6 +50,10 @@
     #define SIZE_ONE_BYTE_HASH 1
 #endif
 
+#if MAX_LEAF_SIZE > 64
+#error "Number of kv pairs in LeafNode must be <= 64."
+#endif
+
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
 
 enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };  
@@ -59,7 +61,7 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 #ifdef PMEM
     #include <libpmemobj.h>
 
-    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 11) * 1000)  /* 1 * 1000 MiB */
+    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 11) * 1000)  /* 11 GB */
 
     POBJ_LAYOUT_BEGIN(List);
     POBJ_LAYOUT_ROOT(List, struct List);
@@ -86,6 +88,74 @@ struct KV
 
     KV() {}
     KV(uint64_t key, uint64_t value) { this->key = key; this->value = value; }
+};
+
+// This Bitset class implements bitmap of size <= 64
+// The bitmap iterates from right to left - starting from least significant bit
+// off contains 0 on some significant bits when bitmap size < 64
+class Bitset {
+      
+public:
+    uint64_t bits;
+
+    Bitset() {
+        bits = 0;
+    }
+
+    ~Bitset() {
+    }
+
+    Bitset(const Bitset& bts) {
+        bits = bts.bits;
+    }
+
+    Bitset& operator=(const Bitset& bts) {
+        bits = bts.bits;
+        return *this;
+    }
+
+    inline void set(const size_t pos) {
+        bits |= ((uint64_t)1 << pos);
+    }
+
+    inline void reset(const size_t pos) {
+        bits &= ~((uint64_t)1 << pos);
+    }
+
+    inline void clear() {
+        bits = 0;
+    }
+
+    inline bool test(const size_t pos) const {
+        return bits & ((uint64_t)1 << pos);
+    }
+
+    inline void flip() {
+        bits ^= offset;
+    }
+
+    inline bool is_full() {
+        return bits == offset;
+    }
+
+    inline size_t count() {
+        size_t set_count = 0;
+        uint64_t val = bits;
+        for (; val; ++set_count)
+            val &= (val - 1);
+        return set_count;
+    }
+
+    inline size_t first_set() {
+        size_t idx = ffsl(bits);
+        return idx? idx - 1 : 64;
+    }
+
+    void print_bits() {
+        for (uint64_t i = 0; i < 64; i++)
+          std::cout << ((bits >> i) & 1);
+        std::cout << std::endl;
+    }
 };
 
 
@@ -142,8 +212,8 @@ struct LeafNodeStat
 struct LeafNode : BaseNode
 {
     __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
-    std::bitset<MAX_LEAF_SIZE> bitmap;
-    // Bitset bitmap;
+    // std::bitset<MAX_LEAF_SIZE> bitmap;
+    Bitset bitmap;
     
     KV kv_pairs[MAX_LEAF_SIZE];
 
@@ -169,7 +239,7 @@ public:
     // return position of first unset bit in bitmap, return bitmap size if all bits are set
     uint64_t findFirstZero();
 
-    bool isFull() { return this->bitmap.all(); }
+    bool isFull() { return this->bitmap.is_full(); }
 
     void addKV(struct KV kv);
 
@@ -188,7 +258,7 @@ public:
     // return min key in leaf
     uint64_t minKey();
 
-    inline uint64_t firstKey(){ return kv_pairs[bitmap._Find_first()].key; }
+    inline uint64_t firstKey(){ return kv_pairs[bitmap.first_set()].key; }
 
     void _lock() 
     { 
@@ -220,7 +290,8 @@ public:
     struct argLeafNode {
         size_t size;
         bool isInnerNode;
-        std::bitset<MAX_LEAF_SIZE> bitmap;
+        // std::bitset<MAX_LEAF_SIZE> bitmap;
+        Bitset bitmap;
         __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
         KV kv_pairs[MAX_LEAF_SIZE];
         uint64_t lock;
