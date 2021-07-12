@@ -402,6 +402,8 @@ public:
 
     void printTSXInfo();
 
+    uint64_t rangeScan(uint64_t key, uint64_t scan_size, char*& result);
+
     #ifdef PMEM
         bool bulkLoad(float load_factor);
     #endif
@@ -410,8 +412,6 @@ private:
 
     // return leaf that may contain key, does not push inner nodes
     LeafNode* findLeaf(uint64_t key);
-
-    InnerNode* findParent(BaseNode* child, uint64_t key);
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
@@ -441,10 +441,10 @@ private:
 
     LeafNode* maxLeaf(BaseNode* node);
 
-    KV volatile_current_kv[MAX_LEAF_SIZE];
+    void sortKV();
 
     uint64_t size_volatile_kv;
-    void sortKV();
+    KV volatile_current_kv[MAX_LEAF_SIZE];
     
     LeafNode* current_leaf;
     uint64_t bitmap_idx;

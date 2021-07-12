@@ -324,6 +324,8 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
+	if (!root)
+		return nullptr;
 	if (!root->isInnerNode) 
         return reinterpret_cast<LeafNode*> (root);
     uint64_t child_idx;
@@ -336,24 +338,10 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
     return reinterpret_cast<LeafNode*> (cursor);
 }
 
-inline InnerNode* FPtree::findParent(BaseNode* child, uint64_t key)
-{
-    uint64_t child_idx;
-    InnerNode* prev = nullptr;
-    BaseNode* cursor = root;
-    while (cursor->isInnerNode) 
-    {
-        prev = reinterpret_cast<InnerNode*> (cursor);
-        child_idx = prev->findChildIndex(key);
-        cursor = prev->p_children[child_idx];
-        if (cursor == child)
-            return prev;
-    }
-    return nullptr;
-}
-
 inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
 {
+	if (!root)
+		return nullptr;
     stack_innerNodes.clear();
     INDEX_NODE = nullptr;
     CHILD_IDX = MAX_INNER_SIZE + 1;
@@ -417,32 +405,29 @@ uint64_t FPtree::find(uint64_t key)
     volatile uint64_t idx;
     volatile int retriesLeft = 5;
     volatile unsigned status;
-    if (root)
+    while (true)
     {
-        while (true)
+        if ((status = _xbegin ()) == _XBEGIN_STARTED)
         {
-            if ((status = _xbegin ()) == _XBEGIN_STARTED)
+            if ((pLeafNode = findLeaf(key)) == nullptr) { _xend(); return 0; }
+            if (pLeafNode->lock) { _xabort(1); continue; }
+            idx = pLeafNode->findKVIndex(key);
+            _xend();
+            return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+        }
+        else 
+        {
+            retriesLeft--;
+            if (retriesLeft < 0) 
             {
-                pLeafNode = findLeaf(key);
-                if (pLeafNode->lock) { _xabort(1); continue; }
+                read_abort_counter++;
+                tbb::speculative_spin_rw_mutex::scoped_lock lock_find;
+                lock_find.acquire(speculative_lock, false);
+                if ((pLeafNode = findLeaf(key)) == nullptr) { lock_find.release(); return 0; }
+                if (pLeafNode->lock) { lock_find.release(); continue; }
                 idx = pLeafNode->findKVIndex(key);
-                _xend();
+                lock_find.release();
                 return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-            }
-            else 
-            {
-                retriesLeft--;
-                if (retriesLeft < 0) 
-                {
-                    read_abort_counter++;
-                    tbb::speculative_spin_rw_mutex::scoped_lock lock_find;
-                    lock_find.acquire(speculative_lock, false);
-                    pLeafNode = findLeaf(key);
-                    if (pLeafNode->lock) { lock_find.release(); continue; }
-                    idx = pLeafNode->findKVIndex(key);
-                    lock_find.release();
-                    return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-                }
             }
         }
     }
@@ -619,7 +604,7 @@ bool FPtree::update(struct KV kv)
         {
             if ((status = _xbegin ()) == _XBEGIN_STARTED)
             {   
-                reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+                if ((reachedLeafNode = findLeafAndPushInnerNodes(kv.key)) == nullptr) { _xend(); return false; }
                 if (reachedLeafNode->lock) { _xabort(1); continue; }
                 reachedLeafNode->_lock();
                 prevPos = reachedLeafNode->findKVIndex(kv.key);
@@ -640,7 +625,7 @@ bool FPtree::update(struct KV kv)
                     update_abort_counter++;
                     std::this_thread::sleep_for(std::chrono::nanoseconds(1));
                     lock_update.acquire(speculative_lock);
-                    reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+                    if ((reachedLeafNode = findLeafAndPushInnerNodes(kv.key)) == nullptr) { lock_update.release(); return false; }
                     if (reachedLeafNode->lock) { lock_update.release(); continue; }
                     reachedLeafNode->_lock();
                     prevPos = reachedLeafNode->findKVIndex(kv.key);
@@ -1132,8 +1117,6 @@ void FPtree::ScanInitialize(uint64_t key)
     if (!root)
         return;
 
-    // std::cout << "scan: " << key << std::endl;
-
     this->current_leaf = root->isInnerNode? findLeaf(key) : reinterpret_cast<LeafNode*> (root);
     while (this->current_leaf != nullptr)
     {
@@ -1180,6 +1163,93 @@ bool FPtree::ScanComplete()
 {
     return this->current_leaf == nullptr;
 }
+
+uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
+{
+	LeafNode* leaf, * next_leaf;
+	std::vector<KV> records;
+	records.reserve(scan_size);
+	uint64_t i;
+	int retriesLeft = 5;
+	tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
+    while (true) 
+    {
+        if (_xbegin() == _XBEGIN_STARTED)
+        {
+        	if ((leaf = findLeaf(key)) == nullptr) { _xend(); return 0; }
+        	if (!leaf->Lock()) { _xabort(1); continue; }
+        	for (i = 0; i < MAX_LEAF_SIZE; i++)
+        		if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
+        			records.push_back(leaf->kv_pairs[i]);
+        	while (records.size() < scan_size)
+        	{
+        		#ifdef PMEM
+	        		if (TOID_IS_NULL(leaf->p_next))
+	        			break;
+        			next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
+        		#else
+        			if ((next_leaf = leaf->p_next) == nullptr)
+        				break;
+        		#endif
+        		while (!next_leaf->Lock())
+        			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        		// next_leaf->_lock();
+        		leaf->_unlock();
+        		leaf = next_leaf;
+        		for (i = 0; i < MAX_LEAF_SIZE; i++)
+	        		if (leaf->bitmap.test(i))
+	        			records.push_back(leaf->kv_pairs[i]);
+        	}
+        	_xend();
+        	break;
+        }
+        else
+        {
+        	retriesLeft--;
+        	if (retriesLeft < 0)
+        	{
+        		lock_scan.acquire(speculative_lock, true);
+        		if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
+	        	if (!leaf->Lock()) { lock_scan.release(); continue; }
+	        	for (i = 0; i < MAX_LEAF_SIZE; i++)
+	        		if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
+	        			records.push_back(leaf->kv_pairs[i]);
+	        	while (records.size() < scan_size)
+	        	{
+	        		#ifdef PMEM
+		        		if (TOID_IS_NULL(leaf->p_next))
+		        			break;
+	        			next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
+	        		#else
+	        			if ((next_leaf = leaf->p_next) == nullptr)
+	        				break;
+	        		#endif
+	        		while (!next_leaf->Lock())
+        				std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        			// next_leaf->_lock();
+	        		leaf->_unlock();
+	        		leaf = next_leaf;
+	        		for (i = 0; i < MAX_LEAF_SIZE; i++)
+		        		if (leaf->bitmap.test(i))
+		        			records.push_back(leaf->kv_pairs[i]);
+	        	}
+	        	lock_scan.release();
+	        	break;
+        	}
+        }
+    }
+    if (leaf && leaf->lock == 1)
+    	leaf->_unlock();
+    std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2){
+            return kv1.key < kv2.key;
+        });
+    if (records.size() > scan_size)
+    	records.erase(records.begin() + scan_size, records.end());
+    result = new char[sizeof(KV) * records.size()];
+    memcpy(result, records.data(), sizeof(KV) * records.size());
+    return records.size();
+}
+
 
 
 #ifdef PMEM
