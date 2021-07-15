@@ -375,6 +375,7 @@ static uint64_t speculative_lock_counter = 0;
 static uint64_t read_abort_counter = 0;
 static uint64_t insert_abort_counter = 0;
 static uint64_t update_abort_counter = 0;
+static uint64_t scan_abort_counter = 0;
 
 void FPtree::printTSXInfo() 
 {
@@ -391,6 +392,7 @@ void FPtree::printTSXInfo()
     std::cout << "read_abort_counter:" << read_abort_counter << std::endl;
     std::cout << "insert_abort_counter:" << insert_abort_counter << std::endl;
     std::cout << "update_abort_counter:" << update_abort_counter << std::endl;
+    std::cout << "scan_abort_counter:" << scan_abort_counter << std::endl;
 }
 
 
@@ -1168,7 +1170,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
 	std::vector<KV> records;
 	records.reserve(scan_size);
 	uint64_t i;
-	int retriesLeft = 5;
+	int retriesLeft = 15;
 	tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
     while (true) 
     {
@@ -1194,7 +1196,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
         		// next_leaf->_lock();
         		leaf->_unlock();
         		leaf = next_leaf;
-        		for (i = 0; i < MAX_LEAF_SIZE; i++)
+        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
 	        		if (leaf->bitmap.test(i))
 	        			records.push_back(leaf->kv_pairs[i]);
         	}
@@ -1206,6 +1208,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
         	retriesLeft--;
         	if (retriesLeft < 0)
         	{
+                scan_abort_counter++;
         		lock_scan.acquire(speculative_lock, true);
         		if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
 	        	if (!leaf->Lock()) { lock_scan.release(); continue; }
@@ -1227,7 +1230,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
         			// next_leaf->_lock();
 	        		leaf->_unlock();
 	        		leaf = next_leaf;
-	        		for (i = 0; i < MAX_LEAF_SIZE; i++)
+	        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
 		        		if (leaf->bitmap.test(i))
 		        			records.push_back(leaf->kv_pairs[i]);
 	        	}
@@ -1238,11 +1241,11 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
     }
     if (leaf && leaf->lock == 1)
     	leaf->_unlock();
-    std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2){
+    std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
-        });
-    if (records.size() > scan_size)
-    	records.erase(records.begin() + scan_size, records.end());
+    });
+    // if (records.size() > scan_size)
+    // 	records.erase(records.begin() + scan_size, records.end());
     result = new char[sizeof(KV) * records.size()];
     memcpy(result, records.data(), sizeof(KV) * records.size());
     return records.size();
