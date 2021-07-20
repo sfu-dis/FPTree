@@ -27,6 +27,7 @@
 #include <tbb/spin_rw_mutex.h>
 #include <immintrin.h>
 #include <thread>
+#include <boost/lockfree/queue.hpp>
 
 #define NDEBUG
 #include <cassert>
@@ -42,10 +43,12 @@
     #define MAX_INNER_SIZE 1024
     #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
+    #define SIZE_PMEM_POINTER 16
 #else
     #define MAX_INNER_SIZE 3
     #define MAX_LEAF_SIZE 4
     #define SIZE_ONE_BYTE_HASH 1
+    #define SIZE_PMEM_POINTER 16
 #endif
 
 #if MAX_LEAF_SIZE > 64
@@ -61,10 +64,17 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
     #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 11) * 1000)  /* 11 GB */
 
-    POBJ_LAYOUT_BEGIN(List);
-    POBJ_LAYOUT_ROOT(List, struct List);
-    POBJ_LAYOUT_TOID(List, struct LeafNode);
-    POBJ_LAYOUT_END(List);
+    POBJ_LAYOUT_BEGIN(FPtree);
+    POBJ_LAYOUT_ROOT(FPtree, struct List);
+    POBJ_LAYOUT_TOID(FPtree, struct LeafNode);
+    // POBJ_LAYOUT_TOID(FPtree, struct SplitLog);
+    // POBJ_LAYOUT_ROOT(FPtree, struct RootSplitLogArray);
+    POBJ_LAYOUT_END(FPtree);
+
+    POBJ_LAYOUT_BEGIN(Array);
+    // POBJ_LAYOUT_TOID(Array, struct LeafNode);
+    POBJ_LAYOUT_TOID(Array, struct SplitLog);
+    POBJ_LAYOUT_END(Array);
 
     inline PMEMobjpool *pop;
 #endif
@@ -323,6 +333,20 @@ public:
     };
 #endif
 
+
+#ifdef PMEM
+    struct SplitLog 
+    {
+        TOID(struct LeafNode) PCurrentLeaf;
+        TOID(struct LeafNode) PNewLeaf;
+    };
+
+    static const uint64_t sizeSplitLogArray = 128;
+
+    static boost::lockfree::queue<SplitLog*> splitLogQueue = boost::lockfree::queue<SplitLog*>(sizeSplitLogArray);
+#endif
+
+
 struct Stack 
 {
 public:
@@ -406,6 +430,10 @@ public:
 
     #ifdef PMEM
         bool bulkLoad(float load_factor);
+        
+        void recoverSplit(SplitLog* uLog);
+
+        void recover();
     #endif
 
 private:
