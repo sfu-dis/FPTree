@@ -73,7 +73,8 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
     POBJ_LAYOUT_BEGIN(Array);
     // POBJ_LAYOUT_TOID(Array, struct LeafNode);
-    POBJ_LAYOUT_TOID(Array, struct SplitLog);
+    POBJ_LAYOUT_TOID(Array, struct Log);
+    // POBJ_LAYOUT_TOID(Array, struct DeleteLog);
     POBJ_LAYOUT_END(Array);
 
     inline PMEMobjpool *pop;
@@ -334,16 +335,20 @@ public:
 #endif
 
 
+/*
+    uLog
+*/
 #ifdef PMEM
-    struct SplitLog 
+    struct Log 
     {
         TOID(struct LeafNode) PCurrentLeaf;
-        TOID(struct LeafNode) PNewLeaf;
+        TOID(struct LeafNode) PLeaf;
     };
 
-    static const uint64_t sizeSplitLogArray = 128;
+    static const uint64_t sizeLogArray = 128;
 
-    static boost::lockfree::queue<SplitLog*> splitLogQueue = boost::lockfree::queue<SplitLog*>(sizeSplitLogArray);
+    static boost::lockfree::queue<Log*> splitLogQueue = boost::lockfree::queue<Log*>(sizeLogArray);
+    static boost::lockfree::queue<Log*> deleteLogQueue = boost::lockfree::queue<Log*>(sizeLogArray);
 #endif
 
 
@@ -431,7 +436,7 @@ public:
     #ifdef PMEM
         bool bulkLoad(float load_factor);
         
-        void recoverSplit(SplitLog* uLog);
+        void recoverSplit(Log* uLog);
 
         void recover();
     #endif
