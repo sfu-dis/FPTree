@@ -427,6 +427,7 @@ static uint64_t read_abort_counter = 0;
 static uint64_t insert_abort_counter = 0;
 static uint64_t update_abort_counter = 0;
 static uint64_t scan_abort_counter = 0;
+static uint64_t exit_counter = 0;
 
 void FPtree::printTSXInfo() 
 {
@@ -924,9 +925,8 @@ void FPtree::recoverSplit(SplitLog* uLog)
         else    // Crashed before inverse the current leaf 
         {
             // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
-            D_RW(uLog->PCurrentLeaf)->bitmap = D_RO(uLog->PNewLeaf)->bitmap;
             if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
-
+ 
             // Persist(Leaf.Bitmap)
             pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
 
@@ -1436,7 +1436,6 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
                 updateParents(min_keys[idx], right_most_innnerNode, child_nodes[idx+1]);
             }
         }
-        
         return true;
     }
 #endif
