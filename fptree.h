@@ -52,7 +52,7 @@
 #endif
 
 #if MAX_LEAF_SIZE > 64
-#error "Number of kv pairs in LeafNode must be <= 64."
+    #error "Number of kv pairs in LeafNode must be <= 64."
 #endif
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);

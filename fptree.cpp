@@ -208,38 +208,39 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
     return reinterpret_cast<LeafNode*> (node);
 }
 
-
-static TOID(struct SplitLog) allocSplitLogArray()
-{
-    TOID(struct SplitLog) array = POBJ_ROOT(pop, struct SplitLog);
-
-    POBJ_ALLOC(pop, &array, struct SplitLog, sizeof(struct SplitLog) * sizeSplitLogArray,
-				NULL, NULL);
-
-    if (TOID_IS_NULL(array)) { fprintf(stderr, "POBJ_ALLOC\n"); return OID_NULL; }
-
-	for (uint64_t i = 0; i < sizeSplitLogArray; i++) 
+#ifdef PMEM
+    static TOID(struct SplitLog) allocSplitLogArray()
     {
-		if (POBJ_ALLOC(pop, &D_RW(array)[i],
-			struct SplitLog, sizeof(struct SplitLog),
-			NULL, NULL)) 
+        TOID(struct SplitLog) array = POBJ_ROOT(pop, struct SplitLog);
+
+        POBJ_ALLOC(pop, &array, struct SplitLog, sizeof(struct SplitLog) * sizeSplitLogArray,
+                    NULL, NULL);
+
+        if (TOID_IS_NULL(array)) { fprintf(stderr, "POBJ_ALLOC\n"); return OID_NULL; }
+
+        for (uint64_t i = 0; i < sizeSplitLogArray; i++) 
         {
-			fprintf(stderr, "pmemobj_alloc\n");
-		}
-	}	
-    return array.oid;
-}
-
-static TOID(struct SplitLog) root_splitLogArray;
-
-void FPtree::recover()
-{
-    root_splitLogArray = POBJ_ROOT(pop, struct SplitLog);
-    for (uint64_t i = 1; i < sizeSplitLogArray; i++)
-    {
-        recoverSplit(&D_RW(root_splitLogArray)[i]);
+            if (POBJ_ALLOC(pop, &D_RW(array)[i],
+                struct SplitLog, sizeof(struct SplitLog),
+                NULL, NULL)) 
+            {
+                fprintf(stderr, "pmemobj_alloc\n");
+            }
+        }	
+        return array.oid;
     }
-}
+
+    static TOID(struct SplitLog) root_splitLogArray;
+
+    void FPtree::recover()
+    {
+        root_splitLogArray = POBJ_ROOT(pop, struct SplitLog);
+        for (uint64_t i = 1; i < sizeSplitLogArray; i++)
+        {
+            recoverSplit(&D_RW(root_splitLogArray)[i]);
+        }
+    }
+#endif
 
 FPtree::FPtree() 
 {
@@ -879,69 +880,70 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
 }
 
 
-void FPtree::recoverSplit(SplitLog* uLog)
-{
-    if (TOID_IS_NULL(uLog->PCurrentLeaf))
+#ifdef PMEM
+    void FPtree::recoverSplit(SplitLog* uLog)
     {
-        return;
-    }
-    
-    if (TOID_IS_NULL(uLog->PNewLeaf))
-    {
-        uLog->PCurrentLeaf = OID_NULL;
-        uLog->PNewLeaf = OID_NULL;
-        return;
-    }
-    else
-    {
-        LeafNode* leaf = (struct LeafNode *) pmemobj_direct((uLog->PCurrentLeaf).oid);
-        uint64_t splitKey = findSplitKey(leaf);
-        if (leaf->isFull()) // Crashed before copy the content of Leaf into NewLeaf
+        if (TOID_IS_NULL(uLog->PCurrentLeaf))
         {
-            for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
+            return;
+        }
+        
+        if (TOID_IS_NULL(uLog->PNewLeaf))
+        {
+            uLog->PCurrentLeaf = OID_NULL;
+            uLog->PNewLeaf = OID_NULL;
+            return;
+        }
+        else
+        {
+            LeafNode* leaf = (struct LeafNode *) pmemobj_direct((uLog->PCurrentLeaf).oid);
+            uint64_t splitKey = findSplitKey(leaf);
+            if (leaf->isFull()) // Crashed before copy the content of Leaf into NewLeaf
             {
-                if (D_RO(uLog->PNewLeaf)->kv_pairs[i].key < splitKey)
-                    D_RW(uLog->PNewLeaf)->bitmap.reset(i);
+                for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
+                {
+                    if (D_RO(uLog->PNewLeaf)->kv_pairs[i].key < splitKey)
+                        D_RW(uLog->PNewLeaf)->bitmap.reset(i);
+                }
+                // Persist(NewLeaf.Bitmap)
+                pmemobj_persist(pop, &D_RO(uLog->PNewLeaf)->bitmap, sizeof(D_RO(uLog->PNewLeaf)->bitmap));
+
+                // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
+                D_RW(uLog->PCurrentLeaf)->bitmap = D_RO(uLog->PNewLeaf)->bitmap;
+                if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
+
+                // Persist(Leaf.Bitmap)
+                pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
+
+                // Persist(Leaf.Next)
+                D_RW(uLog->PCurrentLeaf)->p_next = uLog->PNewLeaf;
+                pmemobj_persist(pop, &D_RO(uLog->PNewLeaf)->p_next, sizeof(D_RO(uLog->PNewLeaf)->p_next));
+
+                // reset uLog
+                uLog->PCurrentLeaf = OID_NULL;
+                uLog->PNewLeaf = OID_NULL;
+                return;
             }
-            // Persist(NewLeaf.Bitmap)
-            pmemobj_persist(pop, &D_RO(uLog->PNewLeaf)->bitmap, sizeof(D_RO(uLog->PNewLeaf)->bitmap));
+            else    // Crashed before inverse the current leaf 
+            {
+                // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
+                if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
+    
+                // Persist(Leaf.Bitmap)
+                pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
 
-            // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
-            D_RW(uLog->PCurrentLeaf)->bitmap = D_RO(uLog->PNewLeaf)->bitmap;
-            if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
+                // Persist(Leaf.Next)
+                D_RW(uLog->PCurrentLeaf)->p_next = uLog->PNewLeaf;
+                pmemobj_persist(pop, &D_RO(uLog->PNewLeaf)->p_next, sizeof(D_RO(uLog->PNewLeaf)->p_next));
 
-            // Persist(Leaf.Bitmap)
-            pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
-
-            // Persist(Leaf.Next)
-            D_RW(uLog->PCurrentLeaf)->p_next = uLog->PNewLeaf;
-            pmemobj_persist(pop, &D_RO(uLog->PNewLeaf)->p_next, sizeof(D_RO(uLog->PNewLeaf)->p_next));
-
-            // reset uLog
-            uLog->PCurrentLeaf = OID_NULL;
-            uLog->PNewLeaf = OID_NULL;
-            return;
-        }
-        else    // Crashed before inverse the current leaf 
-        {
-            // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
-            if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
- 
-            // Persist(Leaf.Bitmap)
-            pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
-
-            // Persist(Leaf.Next)
-            D_RW(uLog->PCurrentLeaf)->p_next = uLog->PNewLeaf;
-            pmemobj_persist(pop, &D_RO(uLog->PNewLeaf)->p_next, sizeof(D_RO(uLog->PNewLeaf)->p_next));
-
-            // reset uLog
-            uLog->PCurrentLeaf = OID_NULL;
-            uLog->PNewLeaf = OID_NULL;
-            return;
+                // reset uLog
+                uLog->PCurrentLeaf = OID_NULL;
+                uLog->PNewLeaf = OID_NULL;
+                return;
+            }
         }
     }
-}
-
+#endif
 
 void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key)
 {

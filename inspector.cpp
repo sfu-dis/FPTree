@@ -12,7 +12,7 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 10000000
+#define NUM_RECORDS 5000000
 
 #define INSERT_RATIO 0
 
@@ -24,9 +24,9 @@
 
 #define MAX_NUM_THREAD 48
 
-#define CHECK_INSERT 0
+#define CHECK_INSERT 1
 
-#define CHECK_DELETE 1
+#define CHECK_DELETE 0
 
 static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 
