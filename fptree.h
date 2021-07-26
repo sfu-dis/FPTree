@@ -438,6 +438,8 @@ public:
         
         void recoverSplit(Log* uLog);
 
+        void recoverDelete(Log* uLog);
+
         void recover();
     #endif
 

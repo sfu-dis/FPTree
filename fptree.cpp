@@ -230,15 +230,15 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
         return array.oid;
     }
 
-    static TOID(struct Log) root_splitLogArray;
+    static TOID(struct Log) root_LogArray;
 
     void FPtree::recover()
     {
-        root_splitLogArray = POBJ_ROOT(pop, struct Log);
-        for (uint64_t i = 1; i < sizeLogArray; i++)
-        {
-            recoverSplit(&D_RW(root_splitLogArray)[i]);
-        }
+        root_LogArray = POBJ_ROOT(pop, struct Log);
+        for (uint64_t i = 1; i < sizeLogArray / 2; i++)
+            recoverSplit(&D_RW(root_LogArray)[i]);
+        for (uint64_t i = sizeLogArray / 2; i < sizeLogArray; i++)
+            recoverDelete(&D_RW(root_LogArray)[i]);
     }
 #endif
 
@@ -252,7 +252,7 @@ FPtree::FPtree()
         {
             if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
                 perror("failed to create pool\n");
-            root_splitLogArray = allocLogArray();
+            root_LogArray = allocLogArray();
         } 
         else 
         {
@@ -264,12 +264,18 @@ FPtree::FPtree()
                 bulkLoad(1);
             }
         }
-        root_splitLogArray = POBJ_ROOT(pop, struct Log);  // Avoid push root object to Queue, i = 1
-        for (uint64_t i = 1; i < sizeLogArray; i++)   // push persistent array to splitLogQueue
+        root_LogArray = POBJ_ROOT(pop, struct Log);  // Avoid push root object to Queue, i = 1
+        for (uint64_t i = 1; i < sizeLogArray / 2; i++)   // push persistent array to splitLogQueue
         {   
-            D_RW(root_splitLogArray)[i].PCurrentLeaf = OID_NULL;
-            D_RW(root_splitLogArray)[i].PLeaf = OID_NULL;
-            splitLogQueue.push(&D_RW(root_splitLogArray)[i]);
+            D_RW(root_LogArray)[i].PCurrentLeaf = OID_NULL;
+            D_RW(root_LogArray)[i].PLeaf = OID_NULL;
+            splitLogQueue.push(&D_RW(root_LogArray)[i]);
+        }
+        for (uint64_t i = sizeLogArray / 2; i < sizeLogArray; i++) // second half of array use as delete log
+        {
+            D_RW(root_LogArray)[i].PCurrentLeaf = OID_NULL;
+            D_RW(root_LogArray)[i].PLeaf = OID_NULL;
+            deleteLogQueue.push(&D_RW(root_LogArray)[i]);
         }
     #else
         bitmap_idx = MAX_LEAF_SIZE;
@@ -321,13 +327,13 @@ inline static uint8_t getOneByteHash(uint64_t key)
             leafNode = D_RO(leafNode)->p_next;
         }
         
-        // std::cout << "\nsplitLogArray: \n";
+        // std::cout << "\nLogArray: \n";
         // for (uint64_t i = 1; i < sizeLogArray; i++)
         // {
-        //     LeafNode* leaf = (struct LeafNode *) pmemobj_direct((D_RO(root_splitLogArray)[i].PCurrentLeaf).oid);
+        //     LeafNode* leaf = (struct LeafNode *) pmemobj_direct((D_RO(root_LogArray)[i].PCurrentLeaf).oid);
         //     if (leaf) std::cout << leaf->kv_pairs[0].key << "\n";
         //     std::cout << leaf << std::endl;
-        //     // std::cout << D_RO(root_splitLogArray)[i].record << std::endl;
+        //     // std::cout << D_RO(root_LogArray)[i].record << std::endl;
         // }
     }
 
@@ -808,7 +814,7 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
 
         // Get uLog from splitLogQueue
         Log* log;
-        if (!splitLogQueue.pop(log)) { assert("Log queue pop error!"); }
+        if (!splitLogQueue.pop(log)) { assert("Split log queue pop error!"); }
 
         //set uLog.PCurrentLeaf to persistent address of Leaf
         log->PCurrentLeaf = pmemobj_oid(leaf);
@@ -1007,7 +1013,7 @@ bool FPtree::deleteKey(uint64_t key)
     LeafNode* leaf, *sibling = nullptr;
     InnerNode* indexNode, *parent; 
     uint64_t child_idx;
-    int status, retriesLeft = 5;
+    int status, retriesLeft = 15;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     Result decision = Result::Abort;
     LeafNodeStat lstat;
@@ -1100,9 +1106,22 @@ bool FPtree::deleteKey(uint64_t key)
     {
         #ifdef PMEM
             TOID(struct LeafNode) lf = pmemobj_oid(leaf);
+            
+            // Get uLog from deleteLogQueue
+            Log* log;
+            if (!deleteLogQueue.pop(log)) { assert("Delete log queue pop error!"); }
+
+            //set uLog.PCurrentLeaf to persistent address of Leaf
+            log->PCurrentLeaf = lf;
+            pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+
             if (sibling) // set and persist sibling's p_next, then unlock sibling node
             {
                 TOID(struct LeafNode) sib = pmemobj_oid(sibling);
+                
+                log->PLeaf = sib;
+                pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+
                 D_RW(sib)->p_next = D_RO(lf)->p_next;
                 pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
                 sibling->Unlock();
@@ -1121,6 +1140,13 @@ bool FPtree::deleteKey(uint64_t key)
                 root = nullptr;
             }
             POBJ_FREE(&lf);
+
+            // reset uLog
+            log->PCurrentLeaf = OID_NULL;
+            log->PLeaf = OID_NULL;
+            pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+            pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+            deleteLogQueue.push(log);
         #else
             if (sibling)
             {
@@ -1184,6 +1210,48 @@ bool FPtree::deleteKey(uint64_t key)
     //     return true;
     // }
 }
+
+#ifdef PMEM
+    void FPtree::recoverDelete(Log* uLog)
+    {
+        TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+        TOID(struct LeafNode) PHead = D_RW(ListHead)->head;
+
+        if( (!TOID_IS_NULL(uLog->PCurrentLeaf)) && (!TOID_IS_NULL(PHead)) )
+        {
+            D_RW(uLog->PLeaf)->p_next = D_RO(uLog->PCurrentLeaf)->p_next;
+            pmemobj_persist(pop, &D_RO(uLog->PLeaf)->p_next, SIZE_PMEM_POINTER);
+            D_RW(uLog->PLeaf)->Unlock();
+            POBJ_FREE(&(uLog->PCurrentLeaf));
+        }
+        else
+        {
+            if ( (!TOID_IS_NULL(uLog->PCurrentLeaf)) && 
+                ((struct LeafNode *) pmemobj_direct((uLog->PCurrentLeaf).oid) == 
+                (struct LeafNode *) pmemobj_direct(PHead.oid)) 
+            )
+            {
+                PHead = D_RO(uLog->PCurrentLeaf)->p_next; 
+                pmemobj_persist(pop, &PHead, SIZE_PMEM_POINTER);
+                POBJ_FREE(&(uLog->PCurrentLeaf));
+            }
+            else 
+            {
+                if ( (!TOID_IS_NULL(uLog->PCurrentLeaf)) && 
+                    ((struct LeafNode *) pmemobj_direct((D_RO(uLog->PCurrentLeaf)->p_next).oid) == 
+                    (struct LeafNode *) pmemobj_direct(PHead.oid)) 
+                )
+                    POBJ_FREE(&(uLog->PCurrentLeaf));
+                else { /* reset uLog */ }
+            }
+        }
+
+        // reset uLog
+        uLog->PCurrentLeaf = OID_NULL;
+        uLog->PLeaf = OID_NULL;
+        return;
+    }
+#endif
 
 bool FPtree::tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx)
 {
