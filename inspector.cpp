@@ -323,12 +323,12 @@ int main()
     
     auto start = std::chrono::steady_clock::now();
     
-    // for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
-    // 	workers[i] = std::thread(thread_load, std::ref(fptree), std::ref(keys), std::ref(values), i);
-    // for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
-	   //  workers[i].join();
-    for (uint64_t i = 0; i < NUM_RECORDS; i++)
-    	fptree.insert(KV(keys[i], values[i]));
+    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+    	workers[i] = std::thread(thread_load, std::ref(fptree), std::ref(keys), std::ref(values), i);
+    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+	    workers[i].join();
+    // for (uint64_t i = 0; i < NUM_RECORDS; i++)
+    // 	fptree.insert(KV(keys[i], values[i]));
     std::cout << "Loading complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec). start testing...\n";
 
 
