@@ -12,20 +12,20 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 5000000		// Number of records to start with
+#define NUM_RECORDS 100		// Number of records to start with
 
-#define NUM_WORKER_THREAD 1		// Number of worker threads for insert, delete
+#define NUM_WORKER_THREAD 2		// Number of worker threads for insert, delete
 
 #define NUM_INSPECTOR_THREAD 48	// Number of threads that walks tree in parallel
 
-#define CHECK_INNER 0			// Whether verifies correctness of innernode
+#define CHECK_INNER 1			// Whether verifies correctness of innernode
 
-#define CHECK_INSERT 0			// Check tree integrity after loading NUM_RECORDS records
+#define CHECK_INSERT 1			// Check tree integrity after loading NUM_RECORDS records
 
-#define DELETE 1				// Whether delete half of keys after loading
+#define DELETE 0				// Whether delete half of keys after loading
 #define CHECK_DELETE 1			// Check tree integrity after delete half
 
-#define BULK_LOAD 1				// Create another tree using the test_pool, check integrity
+#define BULK_LOAD 0				// Create another tree using the test_pool, check integrity
 
 static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 
@@ -323,10 +323,12 @@ int main()
     
     auto start = std::chrono::steady_clock::now();
     
-    for (uint64_t i = 0; i < NUM_WORKER_THREAD)
-    	workers.emplace_back(thread_load, std::ref(fptree), std::ref(keys), std::ref(values), i);
-    for (auto & thread : workers)
-    	thread.join();
+    // for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+    // 	workers[i] = std::thread(thread_load, std::ref(fptree), std::ref(keys), std::ref(values), i);
+    // for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+	   //  workers[i].join();
+    for (uint64_t i = 0; i < NUM_RECORDS; i++)
+    	fptree.insert(KV(keys[i], values[i]));
     std::cout << "Loading complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec). start testing...\n";
 
 
@@ -335,7 +337,14 @@ int main()
 	    if (ins.SanityCheck(fptree, keys, values))
 	    	std::cout << "Sanity check for insertion passed!\n";
 	    else
+	    {
+	    	std::cout << "Sanity check for insertion failed!\n";
+	    	fptree.printFPTree("├──", fptree.getRoot());
+	    	#ifdef PMEM
+                showList();
+            #endif
 	    	return -1;
+	    }
 	#else
 	    printf("Skip insertion check.\n");
 	#endif
@@ -347,10 +356,10 @@ int main()
 	    start = std::chrono::steady_clock::now();
 	    uint64_t half = keys.size() / 2;
 	    workers.clear();
-	    for (uint64_t i = 0; i < NUM_WORKER_THREAD)
-    		workers.emplace_back(thread_delete, std::ref(fptree), std::ref(keys), i);
-	    for (auto & thread : workers)
-	    	thread.join();
+	    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+    		workers[i] = std::thread(thread_delete, std::ref(fptree), std::ref(keys), i);
+	    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+	    	workers[i].join();
 	    std::cout << "Deletion complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec)\n";
 	    keys.erase(keys.begin() + half, keys.end());
 	    values.erase(values.begin() + half, values.end());

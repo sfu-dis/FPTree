@@ -310,7 +310,7 @@ inline static uint8_t getOneByteHash(uint64_t key)
         return b.first_set();
     }
 
-    static void showList()
+    void FPtree::showList()
     {
         TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
         TOID(struct LeafNode) leafNode = D_RO(ListHead)->head;
@@ -1535,7 +1535,7 @@ uint64_t rdtsc(){
             const char* command = argv[1];
             if (command != NULL && strcmp(command, "show") == 0)
             {  
-                showList();
+                fptree.showList();
                 return 0;
             }
         #endif
@@ -1574,7 +1574,7 @@ uint64_t rdtsc(){
             #ifdef PMEM
                 std::cout << std::endl;
                 std::cout << "show list: " << std::endl;
-                showList();
+                fptree.showList();
             #endif
         }
 
