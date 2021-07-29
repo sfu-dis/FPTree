@@ -749,27 +749,27 @@ bool FPtree::insert(struct KV kv)
     }
 
     LeafNode* reachedLeafNode;
-    volatile int retriesLeft = 15;
+    volatile int retriesLeft = 0;
     volatile unsigned status;
     volatile uint64_t idx;
     volatile Result decision = Result::Abort;
     while (decision == Result::Abort)
     {
-        if ((status = _xbegin ()) == _XBEGIN_STARTED)
-        {   
-            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-            if (!reachedLeafNode->Lock()) { _xabort(1); continue; }
-            idx = reachedLeafNode->findKVIndex(kv.key);
-            if (idx != MAX_LEAF_SIZE)
-            {
-                reachedLeafNode->Unlock();
-                _xend();
-                return false;
-            }
-            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-            _xend();
-        }
-        else
+        // if ((status = _xbegin ()) == _XBEGIN_STARTED)
+        // {   
+        //     reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+        //     if (!reachedLeafNode->Lock()) { _xabort(1); continue; }
+        //     idx = reachedLeafNode->findKVIndex(kv.key);
+        //     if (idx != MAX_LEAF_SIZE)
+        //     {
+        //         reachedLeafNode->Unlock();
+        //         _xend();
+        //         return false;
+        //     }
+        //     decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+        //     _xend();
+        // }
+        // else
         {
             retriesLeft--;
             if (retriesLeft < 0) 
