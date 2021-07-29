@@ -639,10 +639,10 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 
             if (parent == root)
             {
-                InnerNode inner = new InnerNode();
+                InnerNode* inner = new InnerNode();
                 inner->addKey(0, splitKey, parent, false);
                 inner->p_children[1] = newInnerNode;
-                root = (BaseNode*)inner;
+                root = inner;
                 return;
             }
             parent = stack_innerNodes.pop();
