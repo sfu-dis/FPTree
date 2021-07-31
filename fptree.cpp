@@ -606,8 +606,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             cur = reinterpret_cast<InnerNode*> (root);
             while(cur->isInnerNode)
             {
-                next = cur->p_children[cur->findChildIndex(key)];
-                if (next == child)
+                next = cur->p_children[cur->findChildIndex(kv.key)];
+                if (next == reachedLeafNode)
                     break;
                     // return cur;
                 else
