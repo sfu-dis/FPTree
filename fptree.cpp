@@ -419,7 +419,7 @@ inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
     return reinterpret_cast<LeafNode*> (cursor);
 }
 
-inline InnerNode* FPtree::findParent(uint64_t key, BaseNode* child)
+InnerNode* FPtree::findParent(uint64_t key, BaseNode* child)
 {
     if (!root)
         return nullptr;
@@ -598,7 +598,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
             parentNode = findParent(kv.key, reachedLeafNode);
-            updateParents(splitKey, parentNode, newLeafNode);
+            // updateParents(splitKey, parentNode, newLeafNode);
         }
         _xend();
         // while (decision == Result::Abort)
