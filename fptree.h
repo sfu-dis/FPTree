@@ -36,7 +36,7 @@
 
 #define TEST_MODE 0
 
-#define PMEM 
+//#define PMEM 
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
