@@ -571,6 +571,11 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         decision = Result::Abort;
         LeafNode* newLeafNode;
         uint64_t retry_times = 0;
+        #ifdef PMEM
+            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+        #else
+            newLeafNode = reachedLeafNode->p_next;
+        #endif
 
     Again2:
         if (++retry_times > 100)
@@ -581,11 +586,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         if (_xbegin() != _XBEGIN_STARTED)
             goto Again2;
 
-        #ifdef PMEM
-            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
-        #else
-            newLeafNode = reachedLeafNode->p_next;
-        #endif
         if (root->isInnerNode == false)
         {
             parentNode = new InnerNode();
