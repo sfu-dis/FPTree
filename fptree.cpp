@@ -602,17 +602,17 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         else
         {
-            // parentNode = findParent(kv.key, reachedLeafNode);
-            cur = reinterpret_cast<InnerNode*> (root);
-            while(cur->isInnerNode)
-            {
-                next = cur->p_children[cur->findChildIndex(kv.key)];
-                if (next == reachedLeafNode)
-                    break;
-                    // return cur;
-                else
-                    cur = reinterpret_cast<InnerNode*> (next);
-            }
+            cur = findParent(kv.key, reachedLeafNode);
+            // cur = reinterpret_cast<InnerNode*> (root);
+            // while(cur->isInnerNode)
+            // {
+            //     next = cur->p_children[cur->findChildIndex(kv.key)];
+            //     if (next == reachedLeafNode)
+            //         break;
+            //         // return cur;
+            //     else
+            //         cur = reinterpret_cast<InnerNode*> (next);
+            // }
             // updateParents(splitKey, cur, newLeafNode);
         }
         _xend();
