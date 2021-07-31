@@ -572,8 +572,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
                     reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
                     reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
-                    lock_split.release();
-                    return;
+                    // lock_split.release();
+                    // return;
+                    _xend();
+                    break;
                 }
                 if constexpr (MAX_INNER_SIZE != 1) 
                 {
@@ -593,6 +595,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     else
                         parentNode->p_children[1] = newInnerNode;
                 }
+                _xend();
                 break;
             }
         }
