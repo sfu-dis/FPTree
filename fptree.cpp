@@ -697,7 +697,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
     {
         if (parent->nKey < MAX_INNER_SIZE)
         {
-            insert_pos = parent->findChildIndex(splitKey);
+            insert_pos = std::lower_bound(parent->keys, parent->keys + parent->nKey, splitKey) - parent->keys;
             parent->addKey(insert_pos, splitKey, child);
             return;
         }
