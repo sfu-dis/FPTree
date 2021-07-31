@@ -339,10 +339,10 @@ int main()
 	    else
 	    {
 	    	std::cout << "Sanity check for insertion failed!\n";
-	    	fptree.printFPTree("├──", fptree.getRoot());
-	    	#ifdef PMEM
-                showList();
-            #endif
+	    	//fptree.printFPTree("├──", fptree.getRoot());
+	    	// #ifdef PMEM
+      //           showList();
+      //       #endif
 	    	return -1;
 	    }
 	#else
