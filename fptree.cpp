@@ -708,6 +708,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 {
     uint64_t mid = floor(MAX_INNER_SIZE / 2);
     uint64_t new_splitKey, insert_pos;
+    InnerNode* cur;
     BaseNode* next;
     while (true)
     {
@@ -758,16 +759,17 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
                 return;
             }
             // parent = findParent(splitKey, parent);
-            parent = reinterpret_cast<InnerNode*> (root);
-            while(parent->isInnerNode)
+            cur = reinterpret_cast<InnerNode*> (root);
+            while(cur->isInnerNode)
             {
-                next = parent->p_children[parent->findChildIndex(kv.key)];
-                if (next == reachedLeafNode)
+                next = reinterpret_cast<InnerNode*> (cur->p_children[cur->findChildIndex(kv.key)]);
+                if (next == parent)
                     break;
-                    // return parent;
+                    // return cur;
                 else
-                    parent = reinterpret_cast<InnerNode*> (next);
+                    cur = next;
             }
+            parent = cur;
             // parent = stack_innerNodes.pop();
             child = newInnerNode;
         }
