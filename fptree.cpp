@@ -597,7 +597,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
-            parentNode = findParent(kv.key, reachedLeafNode);
+            // parentNode = findParent(kv.key, reachedLeafNode);
             // updateParents(splitKey, parentNode, newLeafNode);
         }
         _xend();
