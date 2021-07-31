@@ -579,6 +579,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             newLeafNode = reachedLeafNode->p_next;
         #endif
 
+        InnerNode* cur;
+        BaseNode* next;
+
     Again2:
         if (++retry_times > 100)
         {
@@ -600,7 +603,17 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         else
         {
             // parentNode = findParent(kv.key, reachedLeafNode);
-            updateParents(splitKey, findParent(kv.key, reachedLeafNode), newLeafNode);
+            cur = reinterpret_cast<InnerNode*> (root);
+            while(cur->isInnerNode)
+            {
+                next = cur->p_children[cur->findChildIndex(key)];
+                if (next == child)
+                    break;
+                    // return cur;
+                else
+                    cur = reinterpret_cast<InnerNode*> (next);
+            }
+            // updateParents(splitKey, findParent(kv.key, reachedLeafNode), newLeafNode);
         }
         _xend();
         // while (decision == Result::Abort)
