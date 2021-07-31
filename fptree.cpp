@@ -761,7 +761,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
             cur = reinterpret_cast<InnerNode*> (root);
             while(cur->isInnerNode)
             {
-                next = reinterpret_cast<InnerNode*> (cur->p_children[cur->findChildIndex(kv.key)]);
+                next = reinterpret_cast<InnerNode*> (cur->p_children[cur->findChildIndex(splitKey)]);
                 if (next == parent)
                     break;
                     // return cur;
