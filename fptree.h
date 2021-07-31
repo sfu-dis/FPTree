@@ -451,6 +451,8 @@ private:
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
 
+    InnerNode* findParent(uint64_t key, BaseNode* child);
+
     uint64_t findSplitKey(LeafNode* leaf);
 
     uint64_t splitLeaf(LeafNode* leaf);

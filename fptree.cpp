@@ -419,6 +419,22 @@ inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
     return reinterpret_cast<LeafNode*> (cursor);
 }
 
+InnerNode* findParent(uint64_t key, BaseNode* child)
+{
+    if (!root)
+        return nullptr;
+    InnerNode* cur = reinterpret_cast<InnerNode*> (root);
+    BaseNode* next;
+    while(cur->isInnerNode)
+    {
+        next = cur->p_children[cur->findChildIndex(key)];
+        if (next == child)
+            return cur;
+        else
+            cur = reinterpret_cast<InnerNode*> (next);
+    }
+    return nullptr;
+}
 
 static uint64_t abort_counter = 0;
 static uint64_t conflict_counter = 0;
@@ -581,8 +597,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
-            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-            parentNode = stack_innerNodes.pop();
+            parentNode = findParent(kv.key, reachedLeafNode);
             updateParents(splitKey, parentNode, newLeafNode);
         }
         _xend();
@@ -726,7 +741,8 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
                 root = inner;
                 return;
             }
-            parent = stack_innerNodes.pop();
+            parent = findParent(splitKey, parent);
+            // parent = stack_innerNodes.pop();
             child = newInnerNode;
         }
     }
