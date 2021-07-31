@@ -580,6 +580,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     Again2:
         if (++retry_times > 100)
         {
+            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             // printf("Cannot finish Second critical section!\n");
             // return;
         }
