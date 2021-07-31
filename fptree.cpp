@@ -419,7 +419,7 @@ inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
     return reinterpret_cast<LeafNode*> (cursor);
 }
 
-InnerNode* FPtree::findParent(uint64_t key, BaseNode* child)
+inline InnerNode* FPtree::findParent(uint64_t key, BaseNode* child)
 {
     if (!root)
         return nullptr;
