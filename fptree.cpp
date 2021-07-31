@@ -574,6 +574,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         if constexpr (MAX_INNER_SIZE != 1) 
         {
+            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+            parentNode = stack_innerNodes.pop();
             updateParents(splitKey, parentNode, newLeafNode);
         }
         else // when inner node size equal to 1 
@@ -749,27 +751,27 @@ bool FPtree::insert(struct KV kv)
     }
 
     LeafNode* reachedLeafNode;
-    volatile int retriesLeft = 0;
+    volatile int retriesLeft = 15;
     volatile unsigned status;
     volatile uint64_t idx;
     volatile Result decision = Result::Abort;
     while (decision == Result::Abort)
     {
-        // if ((status = _xbegin ()) == _XBEGIN_STARTED)
-        // {   
-        //     reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-        //     if (!reachedLeafNode->Lock()) { _xabort(1); continue; }
-        //     idx = reachedLeafNode->findKVIndex(kv.key);
-        //     if (idx != MAX_LEAF_SIZE)
-        //     {
-        //         reachedLeafNode->Unlock();
-        //         _xend();
-        //         return false;
-        //     }
-        //     decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-        //     _xend();
-        // }
-        // else
+        if ((status = _xbegin ()) == _XBEGIN_STARTED)
+        {   
+            reachedLeafNode = findLeaf(kv.key);
+            if (!reachedLeafNode->Lock()) { _xabort(1); continue; }
+            idx = reachedLeafNode->findKVIndex(kv.key);
+            if (idx != MAX_LEAF_SIZE)
+            {
+                reachedLeafNode->Unlock();
+                _xend();
+                return false;
+            }
+            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+            _xend();
+        }
+        else
         {
             retriesLeft--;
             if (retriesLeft < 0) 
@@ -777,7 +779,7 @@ bool FPtree::insert(struct KV kv)
                 insert_abort_counter++;
                 std::this_thread::sleep_for(std::chrono::nanoseconds(1));
                 lock_insert.acquire(speculative_lock);
-                reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+                reachedLeafNode = findLeaf(kv.key);
                 if (!reachedLeafNode->Lock()) { lock_insert.release(); continue; }
                 idx = reachedLeafNode->findKVIndex(kv.key);
                 if (idx != MAX_LEAF_SIZE)
