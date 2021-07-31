@@ -566,7 +566,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     #endif
 
 
-    if (decision == Result::Split)
+    if (decision != Result::Split)
+        return;
+
     {   
         decision = Result::Abort;
         LeafNode* newLeafNode;
@@ -580,7 +582,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     Again2:
         if (++retry_times > 100)
         {
-            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             // printf("Cannot finish Second critical section!\n");
             // return;
         }
@@ -596,7 +597,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             parentNode->p_children[1] = newLeafNode;
             root = parentNode;
         }
-        else if constexpr (MAX_INNER_SIZE != 1) 
+        else
         {
             // parentNode = findParent(kv.key, reachedLeafNode);
             updateParents(splitKey, findParent(kv.key, reachedLeafNode), newLeafNode);
