@@ -829,12 +829,11 @@ bool FPtree::insert(struct KV kv)
         lock_insert.release();
     }
 
+    Result decision = Result::Abort;
     {
         LeafNode* reachedLeafNode;
         int retriesLeft = 0;
         uint64_t idx, retry_times = 0;
-        Result decision = Result::Abort;
-
     Again: 
         if (++retry_times > 100)
         {
