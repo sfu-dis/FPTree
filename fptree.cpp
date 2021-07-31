@@ -602,18 +602,18 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         else
         {
-            cur = findParent(kv.key, reachedLeafNode);
-            // cur = reinterpret_cast<InnerNode*> (root);
-            // while(cur->isInnerNode)
-            // {
-            //     next = cur->p_children[cur->findChildIndex(kv.key)];
-            //     if (next == reachedLeafNode)
-            //         break;
-            //         // return cur;
-            //     else
-            //         cur = reinterpret_cast<InnerNode*> (next);
-            // }
-            // updateParents(splitKey, cur, newLeafNode);
+            // cur = findParent(kv.key, reachedLeafNode);
+            cur = reinterpret_cast<InnerNode*> (root);
+            while(cur->isInnerNode)
+            {
+                next = cur->p_children[cur->findChildIndex(kv.key)];
+                if (next == reachedLeafNode)
+                    break;
+                    // return cur;
+                else
+                    cur = reinterpret_cast<InnerNode*> (next);
+            }
+            updateParents(splitKey, cur, newLeafNode);
         }
         _xend();
         // while (decision == Result::Abort)
@@ -704,7 +704,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 }
 
 
-void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child) 
+inline void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child) 
 {
     uint64_t mid = floor(MAX_INNER_SIZE / 2);
     uint64_t new_splitKey, insert_pos;
