@@ -708,8 +708,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 {
     uint64_t mid = floor(MAX_INNER_SIZE / 2);
     uint64_t new_splitKey, insert_pos;
-    InnerNode* cur;
-    BaseNode* next;
+    InnerNode* cur, next;
     while (true)
     {
         if (parent->nKey < MAX_INNER_SIZE)
