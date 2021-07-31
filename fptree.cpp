@@ -613,7 +613,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 else
                     cur = reinterpret_cast<InnerNode*> (next);
             }
-            updateParents(splitKey, cur, newLeafNode);
+            // updateParents(splitKey, cur, newLeafNode);
         }
         _xend();
         // while (decision == Result::Abort)
