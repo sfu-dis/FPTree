@@ -601,7 +601,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
         if (root->isInnerNode == false)
         {
-            parentNode = new InnerNode();
+            parentNode = newInnerNodes[k++];
             parentNode->nKey = 1;
             parentNode->keys[0] = splitKey;
             parentNode->p_children[0] = reachedLeafNode;
@@ -670,7 +670,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
                     if (parent == root)
                     {
-                        cur = new InnerNode();
+                        cur = newInnerNodes[k++];
                         cur->nKey = 1;
                         cur->keys[0] = splitKey;
                         cur->p_children[0] = parent;
