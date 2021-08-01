@@ -636,24 +636,24 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     if (insert_pos < mid) { // insert into parent node
                         new_splitKey = parent->keys[mid];
                         parent->nKey = mid;
-                        std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
-                        std::memmove(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
+                        std::memcpy(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
+                        std::memcpy(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
                         newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
                         parent->addKey(insert_pos, splitKey, child);
                     }
                     else if (insert_pos > mid) { // insert into new innernode
                         new_splitKey = parent->keys[mid];
                         parent->nKey = mid;
-                        std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
-                        std::memmove(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
+                        std::memcpy(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
+                        std::memcpy(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
                         newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
                         newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
                     }
                     else {  // only insert child to new innernode, splitkey does not change
                         new_splitKey = splitKey;
                         parent->nKey = mid;
-                        std::memmove(newInnerNode->keys, parent->keys + mid, (MAX_INNER_SIZE - mid)*sizeof(uint64_t));
-                        std::memmove(newInnerNode->p_children, parent->p_children + mid, (MAX_INNER_SIZE - mid + 1)*sizeof(BaseNode*));
+                        std::memcpy(newInnerNode->keys, parent->keys + mid, (MAX_INNER_SIZE - mid)*sizeof(uint64_t));
+                        std::memcpy(newInnerNode->p_children, parent->p_children + mid, (MAX_INNER_SIZE - mid + 1)*sizeof(BaseNode*));
                         newInnerNode->p_children[0] = child;
                         newInnerNode->nKey = MAX_INNER_SIZE - mid;
                     }
