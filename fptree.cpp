@@ -594,6 +594,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         if (++retry_times == 100)
         {
             printf("Cannot finish Second critical section!\n");
+            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             // return;
         }
         if (_xbegin() != _XBEGIN_STARTED)
@@ -951,6 +952,7 @@ bool FPtree::insert(struct KV kv)
         if (++retry_times == 100)
         {
             printf("Cannot finish first critical section!\n");
+            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             // return false;
         }
         if (_xbegin() != _XBEGIN_STARTED)
