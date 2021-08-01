@@ -39,9 +39,10 @@
 //#define PMEM 
 
 #define TSX
-#define THRESHOLD 15
 
 #define TBB
+
+#define THRESHOLD 15
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 1
