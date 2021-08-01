@@ -644,16 +644,15 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                         newInnerNode->nKey = MAX_INNER_SIZE - mid;
                     }
                     else {
-                        // new_splitKey = parent->keys[mid];
-                        // parent->nKey = mid;
-                        // std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        // std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        // newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
-                        // if (insert_pos < mid)
-                        //     parent->addKey(insert_pos, splitKey, child);
-                        // else
-                        //     newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
-                        break;
+                        new_splitKey = parent->keys[mid];
+                        parent->nKey = mid;
+                        std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+                        std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+                        if (insert_pos < mid)
+                            parent->addKey(insert_pos, splitKey, child);
+                        else
+                            newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
                     }
 
                     splitKey = new_splitKey;
