@@ -580,8 +580,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
         uint64_t mid = floor(MAX_INNER_SIZE / 2);
         uint64_t new_splitKey, insert_pos;
-        InnerNode* cur, *next, *parent;
-        volatile InnerNode* newInnerNode;
+        InnerNode* cur, *next, *parent, *newInnerNode = nullptr;
         BaseNode* child;
         InnerNode* inners[100];
         short ppos[100];
@@ -634,6 +633,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     
                     newInnerNode = new InnerNode();
                     break;
+
                     if (insert_pos == mid) {
                         new_splitKey = splitKey;
                         parent->nKey = mid;
