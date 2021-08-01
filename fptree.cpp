@@ -138,7 +138,7 @@ inline uint64_t LeafNode::removeKVByIdx(uint64_t pos)
     return this->kv_pairs[pos].value;
 }
 
-inline uint64_t LeafNode::findKVIndex(uint64_t key)
+uint64_t LeafNode::findKVIndex(uint64_t key)
 {
     size_t key_hash = getOneByteHash(key);
 
@@ -380,7 +380,7 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
     }
 }
 
-inline LeafNode* FPtree::findLeaf(uint64_t key) 
+LeafNode* FPtree::findLeaf(uint64_t key) 
 {
 	if (!root)
 		return nullptr;

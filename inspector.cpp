@@ -18,9 +18,9 @@
 
 #define NUM_INSPECTOR_THREAD 48	// Number of threads that walks tree in parallel
 
-#define CHECK_INNER 1			// Whether verifies correctness of innernode
+#define CHECK_INNER 			// Whether verifies correctness of innernode
 
-#define CHECK_INSERT 0			// Check tree integrity after loading NUM_RECORDS records
+#define CHECK_INSERT 1			// Check tree integrity after loading NUM_RECORDS records
 
 #define DELETE 0				// Whether delete half of keys after loading
 #define CHECK_DELETE 1			// Check tree integrity after delete half
