@@ -591,10 +591,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         k = 0;
 
     Again2:
-        if (++retry_times > 100)
+        if (++retry_times == 100)
         {
             printf("Cannot finish Second critical section!\n");
-            return;
+            // return;
         }
         if (_xbegin() != _XBEGIN_STARTED)
             goto Again2;
