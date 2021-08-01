@@ -584,7 +584,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         BaseNode* child;
         InnerNode* inners[100];
         short ppos[100];
-        short i = 0;
+        short i = 0, j;
 
     Again2:
         if (++retry_times > 100)
@@ -634,8 +634,12 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     if (insert_pos == mid) {
                         new_splitKey = splitKey;
                         parent->nKey = mid;
-                        std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+                        for (j = 0; j < MAX_INNER_SIZE - mid; j++)
+                            newInnerNode->keys[j] = parent->keys[j + mid];
+                        for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
+                            newInnerNode->p_children[j] = parent->p_children[j + mid];
+                        // std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+                        // std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
                         newInnerNode->p_children[0] = child;
                         newInnerNode->nKey = MAX_INNER_SIZE - mid;
                     }
