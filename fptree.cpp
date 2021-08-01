@@ -954,7 +954,8 @@ bool FPtree::insert(struct KV kv)
             decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
         _xend();
         goto HTM_END;
-    #elif defined TBB
+    #endif
+    #ifdef TBB
     TBB_BEGIN:
         // insert_abort_counter++;
         // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
