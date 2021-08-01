@@ -76,7 +76,7 @@ void InnerNode::removeKey(uint64_t index, bool remove_right_child = true)
     std::memmove(this->p_children + index, this->p_children + index + 1, (this->nKey - index + 1)*sizeof(BaseNode*));
 }
 
-void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right = true)
+inline void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right = true)
 {
     assert(this->nKey >= index && "Insert key index out of range!");
     std::memmove(this->keys+index+1, this->keys+index, (this->nKey-index)*sizeof(uint64_t)); // move keys
@@ -657,11 +657,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                         // std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
                         // std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
                         newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
-                        // if (insert_pos < mid)
-                        //     parent->addKey(insert_pos, splitKey, child);
-                        // else
-                        //     newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
-                        break;
+                        if (insert_pos < mid)
+                            parent->addKey(insert_pos, splitKey, child);
+                        else
+                            newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
                     }
 
                     splitKey = new_splitKey;
