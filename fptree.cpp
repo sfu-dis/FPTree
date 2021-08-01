@@ -580,11 +580,15 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
         uint64_t mid = floor(MAX_INNER_SIZE / 2);
         uint64_t new_splitKey, insert_pos;
-        InnerNode* cur, *next, *parent, *newInnerNode = new InnerNode();;
+        InnerNode* cur, *next, *parent, newInnerNode;
         BaseNode* child;
         InnerNode* inners[100];
         short ppos[100];
-        short i = 0, j;
+        short i = 0, j, k;
+        InnerNode* newInnerNodes[100];
+        for (k = 0; k < 100; k++)
+            newInnerNodes[k] = new InnerNode();
+        k = 0;
 
     Again2:
         if (++retry_times > 100)
@@ -620,23 +624,22 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             parent = inners[--i];
             child = newLeafNode;
 
-            // while (true)
+            while (true)
             {
                 insert_pos = ppos[i--];
                 if (parent->nKey < MAX_INNER_SIZE)
                 {
                     parent->addKey(insert_pos, splitKey, child);
-                    // break;
+                    break;
                 }
                 else 
                 {
+                    newInnerNode = newInnerNode[k++];
                     // break;
-                    
-
                     if (insert_pos == mid) {
                         new_splitKey = splitKey;
                         parent->nKey = mid;
-                        // newInnerNode = new InnerNode();
+                        
                         for (j = 0; j < MAX_INNER_SIZE - mid; j++)
                             newInnerNode->keys[j] = parent->keys[j + mid];
                         for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
@@ -649,7 +652,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     else {
                         new_splitKey = parent->keys[mid];
                         parent->nKey = mid;
-                        // newInnerNode = new InnerNode();
+                        
                         for (j = 0; j < MAX_INNER_SIZE - mid - 1; j++)
                             newInnerNode->keys[j] = parent->keys[j + mid + 1];
                         for (j = 0; j < MAX_INNER_SIZE - mid; j++)
@@ -673,7 +676,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                         cur->p_children[0] = parent;
                         cur->p_children[1] = newInnerNode;
                         root = cur;
-                        // break;
+                        break;
                     }
                     parent = inners[i];
                     child = newInnerNode;
@@ -681,6 +684,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             }
         }
         _xend();
+        for (k; k < 100; k++)
+            delete newInnerNodes[k];
         // while (decision == Result::Abort)
         // {
         //     if (_xbegin() == _XBEGIN_STARTED)
