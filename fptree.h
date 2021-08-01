@@ -40,8 +40,8 @@
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
-    #define MAX_INNER_SIZE 3
-    #define MAX_LEAF_SIZE 4
+    #define MAX_INNER_SIZE 1024
+    #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
     #define SIZE_PMEM_POINTER 16
 #else
