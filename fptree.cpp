@@ -579,8 +579,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             newLeafNode = reachedLeafNode->p_next;
         #endif
 
-        InnerNode* cur;
-        BaseNode* next;
+        uint64_t mid = floor(MAX_INNER_SIZE / 2);
+        uint64_t new_splitKey, insert_pos;
+        InnerNode* cur, *next, *parent;
+        BaseNode* child;
 
     Again2:
         if (++retry_times > 100)
@@ -603,6 +605,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         else
         {
             // cur = findParent(kv.key, reachedLeafNode);
+            // updateParents(splitKey, cur, newLeafNode);
             cur = reinterpret_cast<InnerNode*> (root);
             while(cur->isInnerNode)
             {
@@ -613,7 +616,72 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 else
                     cur = reinterpret_cast<InnerNode*> (next);
             }
-            // updateParents(splitKey, cur, newLeafNode);
+            parent = cur;
+            child = newLeafNode;    
+            while (true)
+            {
+                if (parent->nKey < MAX_INNER_SIZE)
+                {
+                    insert_pos = std::lower_bound(parent->keys, parent->keys + parent->nKey, splitKey) - parent->keys;
+                    parent->addKey(insert_pos, splitKey, child);
+                    return;
+                }
+                else 
+                {
+                    InnerNode* newInnerNode = new InnerNode();
+                    insert_pos = std::lower_bound(parent->keys, parent->keys + MAX_INNER_SIZE, splitKey) - parent->keys;
+
+                    if (insert_pos < mid) { // insert into parent node
+                        new_splitKey = parent->keys[mid];
+                        parent->nKey = mid;
+                        std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
+                        std::memmove(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
+                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+                        parent->addKey(insert_pos, splitKey, child);
+                    }
+                    else if (insert_pos > mid) { // insert into new innernode
+                        new_splitKey = parent->keys[mid];
+                        parent->nKey = mid;
+                        std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
+                        std::memmove(newInnerNode->p_children, parent->p_children + mid + 1, (MAX_INNER_SIZE - mid)*sizeof(BaseNode*));
+                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+                        newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
+                    }
+                    else {  // only insert child to new innernode, splitkey does not change
+                        new_splitKey = splitKey;
+                        parent->nKey = mid;
+                        std::memmove(newInnerNode->keys, parent->keys + mid, (MAX_INNER_SIZE - mid)*sizeof(uint64_t));
+                        std::memmove(newInnerNode->p_children, parent->p_children + mid, (MAX_INNER_SIZE - mid + 1)*sizeof(BaseNode*));
+                        newInnerNode->p_children[0] = child;
+                        newInnerNode->nKey = MAX_INNER_SIZE - mid;
+                    }
+
+                    splitKey = new_splitKey;
+
+                    if (parent == root)
+                    {
+                        InnerNode* inner = new InnerNode();
+                        inner->addKey(0, splitKey, parent, false);
+                        inner->p_children[1] = newInnerNode;
+                        root = inner;
+                        return;
+                    }
+                    // parent = findParent(splitKey, parent);
+                    cur = reinterpret_cast<InnerNode*> (root);
+                    while(cur->isInnerNode)
+                    {
+                        next = reinterpret_cast<InnerNode*> (cur->p_children[cur->findChildIndex(splitKey)]);
+                        if (next == parent)
+                            break;
+                            // return cur;
+                        else
+                            cur = next;
+                    }
+                    parent = cur;
+                    // parent = stack_innerNodes.pop();
+                    child = newInnerNode;
+                }
+            }
         }
         _xend();
         // while (decision == Result::Abort)
@@ -704,7 +772,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 }
 
 
-inline void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child) 
+void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child) 
 {
     uint64_t mid = floor(MAX_INNER_SIZE / 2);
     uint64_t new_splitKey, insert_pos;
