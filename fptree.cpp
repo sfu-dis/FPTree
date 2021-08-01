@@ -634,7 +634,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 }
                 else 
                 {
-                    newInnerNode = newInnerNode[k++];
+                    newInnerNode = newInnerNodes[k++];
                     // break;
                     if (insert_pos == mid) {
                         new_splitKey = splitKey;
