@@ -619,6 +619,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             assert((reinterpret_cast<LeafNode*> (cur) == reachedLeafNode) && "Wrong leaf!\n");
             parent = inners[--i];
             child = newLeafNode;
+            newInnerNode = parent + 1;
 
             while (true)
             {
