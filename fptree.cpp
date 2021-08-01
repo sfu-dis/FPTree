@@ -566,127 +566,128 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     #endif
 
 
-    if (decision != Result::Split)
+    if (decision != Result::Split) // done
         return;
 
     {   
-        LeafNode* newLeafNode;
-        uint64_t retry_times = 0;
-        #ifdef PMEM
-            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
-        #else
-            newLeafNode = reachedLeafNode->p_next;
-        #endif
+    //     LeafNode* newLeafNode;
+    //     uint64_t retry_times = 0;
+    //     #ifdef PMEM
+    //         newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+    //     #else
+    //         newLeafNode = reachedLeafNode->p_next;
+    //     #endif
 
-        uint64_t mid = floor(MAX_INNER_SIZE / 2);
-        uint64_t new_splitKey, insert_pos;
-        InnerNode* cur, *next, *parent, *newInnerNode;
-        BaseNode* child;
-        InnerNode* inners[100];
-        short ppos[100];
-        short i = 0, j, k;
-        InnerNode* newInnerNodes[100];
-        for (k = 0; k < 100; k++)
-            newInnerNodes[k] = new InnerNode();
-        k = 0;
+    //     uint64_t mid = floor(MAX_INNER_SIZE / 2);
+    //     uint64_t new_splitKey, insert_pos;
+    //     InnerNode* cur, *next, *parent, *newInnerNode;
+    //     BaseNode* child;
+    //     InnerNode* inners[100];
+    //     short ppos[100];
+    //     short i = 0, j, k;
+    //     InnerNode* newInnerNodes[100];
+    //     for (k = 0; k < 100; k++)
+    //         newInnerNodes[k] = new InnerNode();
+    //     k = 0;
 
-    Again2:
-        if (++retry_times == 100)
-        {
-            printf("Cannot finish Second critical section!\n");
-            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            // return;
-        }
-        if (_xbegin() != _XBEGIN_STARTED)
-            goto Again2;
+    // Again2:
+    //     if (++retry_times == 100)
+    //     {
+    //         printf("Cannot finish Second critical section!\n");
+    //         std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    //         // return;
+    //     }
+    //     if (_xbegin() != _XBEGIN_STARTED)
+    //         goto Again2;
 
-        if (root->isInnerNode == false)
-        {
-            parentNode = newInnerNodes[k++];
-            parentNode->nKey = 1;
-            parentNode->keys[0] = splitKey;
-            parentNode->p_children[0] = reachedLeafNode;
-            parentNode->p_children[1] = newLeafNode;
-            root = parentNode;
-        }
-        else
-        {
-            // cur = findParent(kv.key, reachedLeafNode);
-            // updateParents(splitKey, cur, newLeafNode);
+    //     if (root->isInnerNode == false)
+    //     {
+    //         parentNode = newInnerNodes[k++];
+    //         parentNode->nKey = 1;
+    //         parentNode->keys[0] = splitKey;
+    //         parentNode->p_children[0] = reachedLeafNode;
+    //         parentNode->p_children[1] = newLeafNode;
+    //         root = parentNode;
+    //     }
+    //     else
+    //     {
+    //         // cur = findParent(kv.key, reachedLeafNode);
+    //         // updateParents(splitKey, cur, newLeafNode);
 
-            cur = reinterpret_cast<InnerNode*> (root);
-            while(cur->isInnerNode)
-            {
-                inners[i] = cur;
-                ppos[i] = cur->findChildIndex(kv.key);
-                cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
-            }
-            assert((reinterpret_cast<LeafNode*> (cur) == reachedLeafNode) && "Wrong leaf!\n");
-            parent = inners[--i];
-            child = newLeafNode;
+    //         cur = reinterpret_cast<InnerNode*> (root);
+    //         while(cur->isInnerNode)
+    //         {
+    //             inners[i] = cur;
+    //             ppos[i] = cur->findChildIndex(kv.key);
+    //             cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
+    //         }
+    //         assert((reinterpret_cast<LeafNode*> (cur) == reachedLeafNode) && "Wrong leaf!\n");
+    //         parent = inners[--i];
+    //         child = newLeafNode;
 
-            while (true)
-            {
-                insert_pos = ppos[i--];
-                if (parent->nKey < MAX_INNER_SIZE)
-                {
-                    parent->addKey(insert_pos, splitKey, child);
-                    break;
-                }
-                else 
-                {
-                    newInnerNode = newInnerNodes[k++];
-                    // break;
-                    if (insert_pos == mid) {
-                        new_splitKey = splitKey;
-                        parent->nKey = mid;
+    //         while (true)
+    //         {
+    //             insert_pos = ppos[i--];
+    //             if (parent->nKey < MAX_INNER_SIZE)
+    //             {
+    //                 parent->addKey(insert_pos, splitKey, child);
+    //                 break;
+    //             }
+    //             else 
+    //             {
+    //                 newInnerNode = newInnerNodes[k++];
+    //                 // break;
+    //                 if (insert_pos == mid) {
+    //                     new_splitKey = splitKey;
+    //                     parent->nKey = mid;
                         
-                        for (j = 0; j < MAX_INNER_SIZE - mid; j++)
-                            newInnerNode->keys[j] = parent->keys[j + mid];
-                        for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
-                            newInnerNode->p_children[j] = parent->p_children[j + mid];
-                        // std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        // std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        newInnerNode->p_children[0] = child;
-                        newInnerNode->nKey = MAX_INNER_SIZE - mid;
-                    }
-                    else {
-                        new_splitKey = parent->keys[mid];
-                        parent->nKey = mid;
+    //                     for (j = 0; j < MAX_INNER_SIZE - mid; j++)
+    //                         newInnerNode->keys[j] = parent->keys[j + mid];
+    //                     for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
+    //                         newInnerNode->p_children[j] = parent->p_children[j + mid];
+    //                     // std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+    //                     // std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+    //                     newInnerNode->p_children[0] = child;
+    //                     newInnerNode->nKey = MAX_INNER_SIZE - mid;
+    //                 }
+    //                 else {
+    //                     new_splitKey = parent->keys[mid];
+    //                     parent->nKey = mid;
                         
-                        for (j = 0; j < MAX_INNER_SIZE - mid - 1; j++)
-                            newInnerNode->keys[j] = parent->keys[j + mid + 1];
-                        for (j = 0; j < MAX_INNER_SIZE - mid; j++)
-                            newInnerNode->p_children[j] = parent->p_children[j + mid + 1];
-                        // std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        // std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
-                        if (insert_pos < mid)
-                            parent->addKey(insert_pos, splitKey, child);
-                        else
-                            newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
-                    }
+    //                     for (j = 0; j < MAX_INNER_SIZE - mid - 1; j++)
+    //                         newInnerNode->keys[j] = parent->keys[j + mid + 1];
+    //                     for (j = 0; j < MAX_INNER_SIZE - mid; j++)
+    //                         newInnerNode->p_children[j] = parent->p_children[j + mid + 1];
+    //                     // std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+    //                     // std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+    //                     newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+    //                     if (insert_pos < mid)
+    //                         parent->addKey(insert_pos, splitKey, child);
+    //                     else
+    //                         newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
+    //                 }
 
-                    splitKey = new_splitKey;
+    //                 splitKey = new_splitKey;
 
-                    if (parent == root)
-                    {
-                        cur = newInnerNodes[k++];
-                        cur->nKey = 1;
-                        cur->keys[0] = splitKey;
-                        cur->p_children[0] = parent;
-                        cur->p_children[1] = newInnerNode;
-                        root = cur;
-                        break;
-                    }
-                    parent = inners[i];
-                    child = newInnerNode;
-                }
-            }
-        }
-        _xend();
-        for (k; k < 100; k++)
-            delete newInnerNodes[k];
+    //                 if (parent == root)
+    //                 {
+    //                     cur = newInnerNodes[k++];
+    //                     cur->nKey = 1;
+    //                     cur->keys[0] = splitKey;
+    //                     cur->p_children[0] = parent;
+    //                     cur->p_children[1] = newInnerNode;
+    //                     root = cur;
+    //                     break;
+    //                 }
+    //                 parent = inners[i];
+    //                 child = newInnerNode;
+    //             }
+    //         }
+    //     }
+    //     _xend();
+    //     for (k; k < 100; k++)
+    //         delete newInnerNodes[k];
+
         // while (decision == Result::Abort)
         // {
         //     if (_xbegin() == _XBEGIN_STARTED)
@@ -732,45 +733,43 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         //         break;
         //     }
         // }
-        // tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
-        // lock_split.acquire(speculative_lock);
+        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
+        lock_split.acquire(speculative_lock);
         
-        // LeafNode* newLeafNode;
-        // #ifdef PMEM
-        //     newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
-        // #else
-        //     newLeafNode = reachedLeafNode->p_next;
-        // #endif
+        LeafNode* newLeafNode;
+        #ifdef PMEM
+            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+        #else
+            newLeafNode = reachedLeafNode->p_next;
+        #endif
 
-        // if (root->isInnerNode == false)
-        // {
-        //     root = new InnerNode();
-        //     reinterpret_cast<InnerNode*> (root)->nKey = 1;
-        //     reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
-        //     reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
-        //     reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
-        //     lock_split.release();
-        //     return;
-        // }
-        // if constexpr (MAX_INNER_SIZE != 1) 
-        // {
-        //     reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-        //     parentNode = stack_innerNodes.pop();
-        //     updateParents(splitKey, parentNode, newLeafNode);
-        // }
-        // else // when inner node size equal to 1 
-        // {
-        //     InnerNode* newInnerNode = new InnerNode();
-        //     newInnerNode->nKey = 1;
-        //     newInnerNode->keys[0] = splitKey;
-        //     newInnerNode->p_children[0] = reachedLeafNode;
-        //     newInnerNode->p_children[1] = newLeafNode;
-        //     if (parentNode->keys[0] > splitKey)
-        //         parentNode->p_children[0] = newInnerNode;
-        //     else
-        //         parentNode->p_children[1] = newInnerNode;
-        // }
-        // lock_split.release();
+        if (root->isInnerNode == false)
+        {
+            root = new InnerNode();
+            reinterpret_cast<InnerNode*> (root)->nKey = 1;
+            reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
+            reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
+            reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
+        }
+        else if constexpr (MAX_INNER_SIZE != 1) 
+        {
+            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+            parentNode = stack_innerNodes.pop();
+            updateParents(splitKey, parentNode, newLeafNode);
+        }
+        else // when inner node size equal to 1 
+        {
+            InnerNode* newInnerNode = new InnerNode();
+            newInnerNode->nKey = 1;
+            newInnerNode->keys[0] = splitKey;
+            newInnerNode->p_children[0] = reachedLeafNode;
+            newInnerNode->p_children[1] = newLeafNode;
+            if (parentNode->keys[0] > splitKey)
+                parentNode->p_children[0] = newInnerNode;
+            else
+                parentNode->p_children[1] = newInnerNode;
+        }
+        lock_split.release();
     }
 }
 
@@ -945,28 +944,56 @@ bool FPtree::insert(struct KV kv)
 
     Result decision = Result::Abort;
     LeafNode* reachedLeafNode;
+    int idx, threshold = THRESHOLD;
     {
-        uint64_t idx, retry_times = 0;
-
-    Again: 
-        if (++retry_times == 100)
+    #ifdef TSX
+    TSX_BEGIN: 
+        if (threshold-- == 0)
         {
-            printf("Cannot finish first critical section!\n");
-            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            // return false;
+            // printf("Cannot finish first critical section in %d tries!\n", THRESHOLD);
+            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        #ifdef TBB
+            threshold = 1;
+            goto TBB_BEGIN;
+        #endif
         }
         if (_xbegin() != _XBEGIN_STARTED)
-            goto Again;
+            goto TSX_BEGIN;
         reachedLeafNode = findLeaf(kv.key);
-        if (!reachedLeafNode->Lock()) { _xabort(4); goto Again; }
+        if (!reachedLeafNode->Lock()) { _xabort(4); goto TSX_BEGIN; }
         idx = reachedLeafNode->findKVIndex(kv.key);
         if (idx != MAX_LEAF_SIZE)
             reachedLeafNode->Unlock();
         else
             decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
         _xend();
+        goto HTM_END;
+    #elif defined TBB
+    TBB_BEGIN:
+        // insert_abort_counter++;
+        // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        lock_insert.acquire(speculative_lock);
+        reachedLeafNode = findLeaf(kv.key);
+        if (!reachedLeafNode->Lock()) 
+        { 
+            lock_insert.release(); 
+        #ifdef TSX
+            goto TSX_BEGIN;
+        #else
+            goto TBB_BEGIN;
+        #endif
+        }
+        idx = reachedLeafNode->findKVIndex(kv.key);
+        if (idx != MAX_LEAF_SIZE)
+            reachedLeafNode->Unlock();
+        else
+            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+        lock_insert.release();
+    #endif
     }
-    if (decision == Result::Abort)
+    HTM_END:
+
+    if (decision == Result::Abort)  // kv already exists
         return false;
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, nullptr, decision, kv);
@@ -1759,7 +1786,7 @@ uint64_t rdtsc(){
 
 
 
-#if TEST_MODE == 1
+#if TEST_MODE == 2
     int main(int argc, char *argv[]) 
     {
         srand( (unsigned) time(NULL) * getpid());

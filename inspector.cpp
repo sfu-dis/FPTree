@@ -14,13 +14,13 @@
 
 #define NUM_RECORDS 10000		// Number of records to start with
 
-#define NUM_WORKER_THREAD 20		// Number of worker threads for insert, delete
+#define NUM_WORKER_THREAD 1		// Number of worker threads for insert, delete
 
 #define NUM_INSPECTOR_THREAD 48	// Number of threads that walks tree in parallel
 
 #define CHECK_INNER 1			// Whether verifies correctness of innernode
 
-#define CHECK_INSERT 1			// Check tree integrity after loading NUM_RECORDS records
+#define CHECK_INSERT 0			// Check tree integrity after loading NUM_RECORDS records
 
 #define DELETE 0				// Whether delete half of keys after loading
 #define CHECK_DELETE 1			// Check tree integrity after delete half

@@ -38,8 +38,13 @@
 
 //#define PMEM 
 
+#define TSX
+#define THRESHOLD 15
+
+#define TBB
+
 // static const uint64_t kMaxEntries = 256;
-#if TEST_MODE == 0
+#if TEST_MODE == 1
     #define MAX_INNER_SIZE 1024
     #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
