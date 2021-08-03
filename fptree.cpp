@@ -762,8 +762,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         lock_split.release();
     #endif
-    }
     END:
+        newLeafNode->Unlock();
+    }
     /*---------------- End of Second Critical Section -----------------*/
 }
 
@@ -980,12 +981,6 @@ bool FPtree::insert(struct KV kv)
         return false;
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, nullptr, decision, kv);
-
-    #ifdef PMEM
-        if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->Unlock();
-    #else 
-        if (decision == Result::Split) reachedLeafNode->p_next->Unlock();
-    #endif
 
     reachedLeafNode->Unlock();
     
