@@ -38,11 +38,15 @@
 
 //#define PMEM 
 
-#define TSX
+#define TSX_1   // Use intel tsx for first critical section
 
-//#define TBB
+#define TBB_1   // Use speculative lock for ...
 
-#define THRESHOLD 15
+#define TSX_2   // ... for second critical section
+
+#define TBB_2
+
+#define THRESHOLD 15    // # of retries for TSX, > 0 
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 1
@@ -199,6 +203,7 @@ struct InnerNode : BaseNode
 
 public:
     InnerNode();
+    InnerNode(uint64_t key, BaseNode* left, BaseNode* right);
     InnerNode(const InnerNode& inner);
     ~InnerNode();
 
