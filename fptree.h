@@ -38,15 +38,15 @@
 
 //#define PMEM 
 
-//#define TSX_1   // Use intel tsx for first critical section
+#define TSX_1   // Use intel tsx for first critical section
 
-#define TBB_1   // Use speculative lock for ...
+//#define TBB_1   // Use speculative lock for ...
 
-//#define TSX_2   // ... for second critical section
+#define TSX_2   // ... for second critical section
 
-#define TBB_2
+//#define TBB_2
 
-#define THRESHOLD 15    // # of retries for TSX, > 0
+#define THRESHOLD 50    // # of retries for TSX, > 0
 
 // static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 1

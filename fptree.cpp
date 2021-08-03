@@ -708,37 +708,40 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     //     for (k; k < 100; k++)
     //         delete newInnerNodes[k];
     #ifdef TSX_2
-        while (threshold-- != 0)
+    TSX_BEGIN: 
+        if (threshold-- == 0)
         {
-            if (_xbegin() == _XBEGIN_STARTED)
-            {
-                if (root->isInnerNode == false)
-                {
-                    root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
-                }
-                else if constexpr (MAX_INNER_SIZE != 1) 
-                {
-                    reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-                    parentNode = stack_innerNodes.pop();
-                    updateParents(splitKey, parentNode, newLeafNode);
-                }
-                else // when inner node size equal to 1 
-                {
-                    newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
-                    if (parentNode->keys[0] > splitKey)
-                        parentNode->p_children[0] = newInnerNode;
-                    else
-                        parentNode->p_children[1] = newInnerNode;
-                }
-                _xend();
-                goto END;
-            }
-        #ifndef TBB_2
-            threshold ++;
+            printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
+            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        #ifdef TBB_2
+            goto TBB_BEGIN;
         #endif
         }
+        if (_xbegin() != _XBEGIN_STARTED)
+            goto TSX_BEGIN;
+        if (root->isInnerNode == false)
+        {
+            root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+        }
+        else if constexpr (MAX_INNER_SIZE != 1) 
+        {
+            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+            parentNode = stack_innerNodes.pop();
+            updateParents(splitKey, parentNode, newLeafNode);
+        }
+        else // when inner node size equal to 1 
+        {
+            newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+            if (parentNode->keys[0] > splitKey)
+                parentNode->p_children[0] = newInnerNode;
+            else
+                parentNode->p_children[1] = newInnerNode;
+        }
+        _xend();
+        goto END;
     #endif
     #ifdef TBB_2
+    TBB_BEGIN:
         lock_split.acquire(speculative_lock);
         if (root->isInnerNode == false)
         {
@@ -930,7 +933,7 @@ bool FPtree::insert(struct KV kv)
     TSX_BEGIN: 
         if (threshold-- == 0)
         {
-            // printf("Cannot finish first critical section in %d tries!\n", THRESHOLD);
+            printf("Cannot finish first critical section in %d tries!\n", THRESHOLD);
             // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         #ifdef TBB_1
             threshold = 1;
