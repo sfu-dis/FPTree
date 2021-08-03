@@ -750,8 +750,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
             reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-            parentNode = stack_innerNodes.pop();
-            updateParents(splitKey, parentNode, newLeafNode);
+            // parentNode = stack_innerNodes.pop();
+            // updateParents(splitKey, parentNode, newLeafNode);
         }
         else // when inner node size equal to 1 
         {
