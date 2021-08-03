@@ -582,12 +582,15 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         LeafNode* newLeafNode;
         InnerNode* newInnerNode;
         int threshold = THRESHOLD;
-        #ifdef PMEM
-            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
-        #else
-            newLeafNode = reachedLeafNode->p_next;
-        #endif
+    #ifdef PMEM
+        newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+    #else
+        newLeafNode = reachedLeafNode->p_next;
+    #endif
 
+    #ifdef TBB_2
+        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
+    #endif
     //     uint64_t retry_times = 0;
     //     #ifdef PMEM
     //         newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
@@ -730,18 +733,13 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 _xend();
                 goto END;
             }
-            else
-            {
-            #ifndef TBB_2
-                threshold = THRESHOLD;
-            #endif
-            }
+        #ifndef TBB_2
+            threshold ++;
+        #endif
         }
     #endif
     #ifdef TBB_2
-        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
         lock_split.acquire(speculative_lock);
-
         if (root->isInnerNode == false)
         {
             root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
