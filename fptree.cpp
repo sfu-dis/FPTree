@@ -524,7 +524,6 @@ uint64_t FPtree::find(uint64_t key)
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
                                             Result decision, struct KV kv, bool updateFunc = false, uint64_t prevPos = MAX_LEAF_SIZE)
 {
-    printf("Calling split func\n");
     uint64_t splitKey;
 
     #ifdef PMEM
@@ -765,7 +764,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         newLeafNode->Unlock();
     }
     /*---------------- End of Second Critical Section -----------------*/
-    printf("Finished split func\n");
 }
 
 
