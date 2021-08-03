@@ -25,7 +25,7 @@ InnerNode::InnerNode(uint64_t key, BaseNode* left, BaseNode* right)
     this->isInnerNode = true;
     this->keys[0] = key;
     this->p_children[0] = left;
-    this->p_children[0] = right;
+    this->p_children[1] = right;
     this->nKey = 1;
 }
 
