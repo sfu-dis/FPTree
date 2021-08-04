@@ -917,6 +917,8 @@ bool FPtree::update(struct KV kv)
 
 bool FPtree::insert(struct KV kv) 
 {
+    thread_local count = 0;
+    count ++;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
     if (!root) // if tree is empty
     {
@@ -952,9 +954,9 @@ bool FPtree::insert(struct KV kv)
     TSX_BEGIN: 
         if (threshold-- == 0)
         {
-            printf("Cannot finish first critical section in %d tries!\n", THRESHOLD);
-            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            threshold = THRESHOLD;
+            printf("Cannot finish first critical section in %d tries for Insert - %d!\n", THRESHOLD, count);
+            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            return false;
         #ifdef TBB_1
             threshold = 1;
             goto TBB_BEGIN;
