@@ -616,7 +616,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     TSX_BEGIN: 
         if (threshold-- == 0)
         {
-            printf("Cannot finish second critical section in %d tries! Insert - %d\n", THRESHOLD, count);
+            printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
             // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             // threshold = THRESHOLD;
             printTSXInfo();
@@ -648,7 +648,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             newInnerNodes[k]->init(splitKey, reachedLeafNode, newLeafNode);
             root = newInnerNodes[k++]; //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
         }
-        else if constexpr (MAX_INNER_SIZE != 1) 
+        else //if constexpr (MAX_INNER_SIZE != 1) 
         {
             cur = reinterpret_cast<InnerNode*> (root);
             while(cur->isInnerNode)
@@ -675,10 +675,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     {
                         new_splitKey = parent->keys[mid];
                         parent->nKey = mid;
-                        // for (j = 0; j < MAX_INNER_SIZE - mid - 1; j++)
-                        //     newInnerNode->keys[j] = parent->keys[j + mid + 1];
-                        // for (j = 0; j < MAX_INNER_SIZE - mid; j++)
-                        //     newInnerNode->p_children[j] = parent->p_children[j + mid + 1];
                         std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
                         std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
                         newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
@@ -690,10 +686,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     else {
                         new_splitKey = splitKey;
                         parent->nKey = mid;
-                        // for (j = 0; j < MAX_INNER_SIZE - mid; j++)
-                        //     newInnerNode->keys[j] = parent->keys[j + mid];
-                        // for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
-                        //     newInnerNode->p_children[j] = parent->p_children[j + mid];
                         std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
                         std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
                         newInnerNode->p_children[0] = child;
@@ -713,14 +705,14 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 }
             }
         }
-        else // when inner node size equal to 1 
-        {
-            newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
-            if (parentNode->keys[0] > splitKey)
-                parentNode->p_children[0] = newInnerNode;
-            else
-                parentNode->p_children[1] = newInnerNode;
-        }
+        // else // when inner node size equal to 1 
+        // {
+        //     newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+        //     if (parentNode->keys[0] > splitKey)
+        //         parentNode->p_children[0] = newInnerNode;
+        //     else
+        //         parentNode->p_children[1] = newInnerNode;
+        // }
         _xend();
         for (k; k < 100; k++)
             delete newInnerNodes[k];
