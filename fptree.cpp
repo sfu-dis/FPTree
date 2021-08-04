@@ -600,10 +600,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         thread_local short ppos[100];
         short i = 0, j, k;
         int status;
-        // InnerNode* newInnerNodes[100];
-        // for (k = 0; k < 100; k++)
-        //     newInnerNodes[k] = new InnerNode();
-        // k = 0;
+        thread_local InnerNode* newInnerNodes[100];
+        for (k = 0; k < 100; k++)
+            newInnerNodes[k] = new InnerNode();
+        k = 0;
 
     #ifdef TSX_2
     TSX_BEGIN: 
@@ -670,8 +670,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 }
                 else 
                 {
-                    break;
-                    newInnerNode = new InnerNode(); //newInnerNodes[k++];
+                    newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
                     // break;
                     if (insert_pos != mid)
                     {
@@ -723,6 +722,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 parentNode->p_children[1] = newInnerNode;
         }
         _xend();
+        for (k; k < 100; k++)
+            delete newInnerNodes[k];
         goto END;
     #endif
     // #ifdef TSX_2
