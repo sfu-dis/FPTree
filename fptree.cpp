@@ -645,8 +645,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         if (root->isInnerNode == false)
         {
-            newInnerNodes[k]->init(splitKey, reachedLeafNode, newLeafNode);
-            root = newInnerNodes[k++]; //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+            root = newInnerNodes[k++];
+            reinterpret_cast<InnerNode*> (root)->init(splitKey, reachedLeafNode, newLeafNode);
+             //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
         }
         else //if constexpr (MAX_INNER_SIZE != 1) 
         {
