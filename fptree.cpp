@@ -685,6 +685,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 }
                 else 
                 {
+                    break;
                     test = 4;
                     newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
                     test = 0;
