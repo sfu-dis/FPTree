@@ -661,18 +661,18 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
-            test = 2;
-            cur = reinterpret_cast<InnerNode*> (root);
-            while(cur->isInnerNode)
-            {
-                inners[i] = cur;
-                ppos[i] = cur->findChildIndex(kv.key);
-                cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
-            }
-            assert((reinterpret_cast<LeafNode*> (cur) == reachedLeafNode) && "Wrong leaf!\n");
-            parent = inners[--i];
-            child = newLeafNode;
-            test = 0;
+            // test = 2;
+            // cur = reinterpret_cast<InnerNode*> (root);
+            // while(cur->isInnerNode)
+            // {
+            //     inners[i] = cur;
+            //     ppos[i] = cur->findChildIndex(kv.key);
+            //     cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
+            // }
+            // assert((reinterpret_cast<LeafNode*> (cur) == reachedLeafNode) && "Wrong leaf!\n");
+            // parent = inners[--i];
+            // child = newLeafNode;
+            // test = 0;
             // while (true)
             // {
             //     insert_pos = ppos[i--];
