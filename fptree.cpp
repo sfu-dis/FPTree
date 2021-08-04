@@ -29,6 +29,14 @@ InnerNode::InnerNode(uint64_t key, BaseNode* left, BaseNode* right)
     this->nKey = 1;
 }
 
+void InnerNode::init(uint64_t key, BaseNode* left, BaseNode* right)
+{
+    this->keys[0] = key;
+    this->p_children[0] = left;
+    this->p_children[1] = right;
+    this->nKey = 1;
+}
+
 InnerNode::InnerNode(const InnerNode& inner)
 {
     this->isInnerNode = true;
@@ -645,7 +653,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         if (root->isInnerNode == false)
         {
-            root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+            newInnerNodes[k]->init(splitKey, reachedLeafNode, newLeafNode);
+            root = newInnerNodes[k++]; //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
         }
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
@@ -705,7 +714,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
                     if (parent == root)
                     {
-                        root = new InnerNode(splitKey, parent, newInnerNode); //newInnerNodes[k++];
+                        newInnerNodes[k]->init(splitKey, parent, newInnerNode);
+                        root = newInnerNodes[k++]; //new InnerNode(splitKey, parent, newInnerNode);
                         break;
                     }
                     parent = inners[i];

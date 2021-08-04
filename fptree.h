@@ -207,6 +207,8 @@ public:
     InnerNode(const InnerNode& inner);
     ~InnerNode();
 
+    void init(uint64_t key, BaseNode* left, BaseNode* right);
+
     // return index of child in p_children when searching key in this innernode
     uint64_t findChildIndex(uint64_t key);
 
