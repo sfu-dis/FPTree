@@ -673,72 +673,72 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             parent = inners[--i];
             child = newLeafNode;
             test = 0;
-            while (true)
-            {
-                insert_pos = ppos[i--];
-                if (parent->nKey < MAX_INNER_SIZE)
-                {
-                    test = 3;
-                    parent->addKey(insert_pos, splitKey, child);
-                    test = 0;
-                    break;
-                }
-                else 
-                {
-                    break;
-                    test = 4;
-                    newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
-                    test = 0;
-                    // break;
-                    if (insert_pos != mid)
-                    {
-                        test = 5;
-                        new_splitKey = parent->keys[mid];
-                        parent->nKey = mid;
-                        // for (j = 0; j < MAX_INNER_SIZE - mid - 1; j++)
-                        //     newInnerNode->keys[j] = parent->keys[j + mid + 1];
-                        // for (j = 0; j < MAX_INNER_SIZE - mid; j++)
-                        //     newInnerNode->p_children[j] = parent->p_children[j + mid + 1];
-                        std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
-                        if (insert_pos < mid)
-                            parent->addKey(insert_pos, splitKey, child);
-                        else
-                            newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
-                        test = 0;
-                    }
-                    else {
-                        test = 6;
-                        new_splitKey = splitKey;
-                        parent->nKey = mid;
-                        // for (j = 0; j < MAX_INNER_SIZE - mid; j++)
-                        //     newInnerNode->keys[j] = parent->keys[j + mid];
-                        // for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
-                        //     newInnerNode->p_children[j] = parent->p_children[j + mid];
-                        std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        newInnerNode->p_children[0] = child;
-                        newInnerNode->nKey = MAX_INNER_SIZE - mid;
-                        test = 0;
-                    }
+            // while (true)
+            // {
+            //     insert_pos = ppos[i--];
+            //     if (parent->nKey < MAX_INNER_SIZE)
+            //     {
+            //         test = 3;
+            //         parent->addKey(insert_pos, splitKey, child);
+            //         test = 0;
+            //         break;
+            //     }
+            //     else 
+            //     {
+            //         break;
+            //         test = 4;
+            //         newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
+            //         test = 0;
+            //         // break;
+            //         if (insert_pos != mid)
+            //         {
+            //             test = 5;
+            //             new_splitKey = parent->keys[mid];
+            //             parent->nKey = mid;
+            //             // for (j = 0; j < MAX_INNER_SIZE - mid - 1; j++)
+            //             //     newInnerNode->keys[j] = parent->keys[j + mid + 1];
+            //             // for (j = 0; j < MAX_INNER_SIZE - mid; j++)
+            //             //     newInnerNode->p_children[j] = parent->p_children[j + mid + 1];
+            //             std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+            //             std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+            //             newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+            //             if (insert_pos < mid)
+            //                 parent->addKey(insert_pos, splitKey, child);
+            //             else
+            //                 newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
+            //             test = 0;
+            //         }
+            //         else {
+            //             test = 6;
+            //             new_splitKey = splitKey;
+            //             parent->nKey = mid;
+            //             // for (j = 0; j < MAX_INNER_SIZE - mid; j++)
+            //             //     newInnerNode->keys[j] = parent->keys[j + mid];
+            //             // for (j = 0; j <= MAX_INNER_SIZE - mid; j++)
+            //             //     newInnerNode->p_children[j] = parent->p_children[j + mid];
+            //             std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+            //             std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+            //             newInnerNode->p_children[0] = child;
+            //             newInnerNode->nKey = MAX_INNER_SIZE - mid;
+            //             test = 0;
+            //         }
 
-                    splitKey = new_splitKey;
+            //         splitKey = new_splitKey;
 
-                    if (parent == root)
-                    {
-                        test = 7;
-                        newInnerNodes[k]->init(splitKey, parent, newInnerNode);
-                        root = newInnerNodes[k++]; //new InnerNode(splitKey, parent, newInnerNode);
-                        test = 0;
-                        break;
-                    }
-                    test = 8;
-                    parent = inners[i];
-                    child = newInnerNode;
-                    test = 0;
-                }
-            }
+            //         if (parent == root)
+            //         {
+            //             test = 7;
+            //             newInnerNodes[k]->init(splitKey, parent, newInnerNode);
+            //             root = newInnerNodes[k++]; //new InnerNode(splitKey, parent, newInnerNode);
+            //             test = 0;
+            //             break;
+            //         }
+            //         test = 8;
+            //         parent = inners[i];
+            //         child = newInnerNode;
+            //         test = 0;
+            //     }
+            // }
         }
         else // when inner node size equal to 1 
         {
