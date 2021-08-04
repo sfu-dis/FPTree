@@ -599,6 +599,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         thread_local InnerNode* inners[100];
         thread_local short ppos[100];
         short i = 0, j, k;
+        int status;
         // InnerNode* newInnerNodes[100];
         // for (k = 0; k < 100; k++)
         //     newInnerNodes[k] = new InnerNode();
@@ -610,12 +611,38 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         {
             printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
             // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            printTSXInfo();
+            return;
         #ifdef TBB_2
             goto TBB_BEGIN;
         #endif
         }
-        if (_xbegin() != _XBEGIN_STARTED)
+        if ((status = _xbegin()) != _XBEGIN_STARTED)
+        {
+            // std::cout << "Transaction abort: " << status << std::endl;
+            if (status & _XABORT_CONFLICT){
+                conflict_counter++;
+            }
+            if (status & _XABORT_CAPACITY){
+                capacity_counter++;
+            }
+            if (status & _XABORT_DEBUG){
+                debug_counter++;
+            }
+            if ((status & _XABORT_RETRY) == 0){
+                failed_counter++;
+            }
+            if (status & _XABORT_EXPLICIT) {
+                explicit_counter++;
+            }
+            if (status & _XABORT_NESTED) {
+                nester_counter++;
+            }
+            if (status == 0) {
+                zero_counter++;
+            }
             goto TSX_BEGIN;
+        }
         if (root->isInnerNode == false)
         {
             root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
