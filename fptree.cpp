@@ -105,7 +105,7 @@ void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_c
     this->nKey++;
 }
 
-inline uint64_t InnerNode::findChildIndex(uint64_t key)
+uint64_t InnerNode::findChildIndex(uint64_t key)
 {
     auto begin = std::begin(this->keys);
     auto lower = std::lower_bound(begin, begin + this->nKey, key);
