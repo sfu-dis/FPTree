@@ -20,6 +20,23 @@ InnerNode::InnerNode()
     this->nKey = 0;
 }
 
+InnerNode::InnerNode(uint64_t key, BaseNode* left, BaseNode* right)
+{
+    this->isInnerNode = true;
+    this->keys[0] = key;
+    this->p_children[0] = left;
+    this->p_children[1] = right;
+    this->nKey = 1;
+}
+
+void InnerNode::init(uint64_t key, BaseNode* left, BaseNode* right)
+{
+    this->keys[0] = key;
+    this->p_children[0] = left;
+    this->p_children[1] = right;
+    this->nKey = 1;
+}
+
 InnerNode::InnerNode(const InnerNode& inner)
 {
     this->isInnerNode = true;
@@ -138,7 +155,7 @@ inline uint64_t LeafNode::removeKVByIdx(uint64_t pos)
     return this->kv_pairs[pos].value;
 }
 
-inline uint64_t LeafNode::findKVIndex(uint64_t key)
+uint64_t LeafNode::findKVIndex(uint64_t key)
 {
     size_t key_hash = getOneByteHash(key);
 
@@ -208,6 +225,39 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
     return reinterpret_cast<LeafNode*> (node);
 }
 
+#ifdef PMEM
+    static TOID(struct Log) allocLogArray()
+    {
+        TOID(struct Log) array = POBJ_ROOT(pop, struct Log);
+
+        POBJ_ALLOC(pop, &array, struct Log, sizeof(struct Log) * sizeLogArray,
+                    NULL, NULL);
+
+        if (TOID_IS_NULL(array)) { fprintf(stderr, "POBJ_ALLOC\n"); return OID_NULL; }
+
+        for (uint64_t i = 0; i < sizeLogArray; i++) 
+        {
+            if (POBJ_ALLOC(pop, &D_RW(array)[i],
+                struct Log, sizeof(struct Log),
+                NULL, NULL)) 
+            {
+                fprintf(stderr, "pmemobj_alloc\n");
+            }
+        }	
+        return array.oid;
+    }
+
+    static TOID(struct Log) root_LogArray;
+
+    void FPtree::recover()
+    {
+        root_LogArray = POBJ_ROOT(pop, struct Log);
+        for (uint64_t i = 1; i < sizeLogArray / 2; i++)
+            recoverSplit(&D_RW(root_LogArray)[i]);
+        for (uint64_t i = sizeLogArray / 2; i < sizeLogArray; i++)
+            recoverDelete(&D_RW(root_LogArray)[i]);
+    }
+#endif
 
 FPtree::FPtree() 
 {
@@ -219,18 +269,34 @@ FPtree::FPtree()
         {
             if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
                 perror("failed to create pool\n");
+            root_LogArray = allocLogArray();
         } 
         else 
         {
             if ((pop = pmemobj_open(path, POBJ_LAYOUT_NAME(FPtree))) == NULL)
                 perror("failed to open pool\n");
             else 
+            {
+                recover();
                 bulkLoad(1);
+            }
+        }
+        root_LogArray = POBJ_ROOT(pop, struct Log);  // Avoid push root object to Queue, i = 1
+        for (uint64_t i = 1; i < sizeLogArray / 2; i++)   // push persistent array to splitLogQueue
+        {   
+            D_RW(root_LogArray)[i].PCurrentLeaf = OID_NULL;
+            D_RW(root_LogArray)[i].PLeaf = OID_NULL;
+            splitLogQueue.push(&D_RW(root_LogArray)[i]);
+        }
+        for (uint64_t i = sizeLogArray / 2; i < sizeLogArray; i++) // second half of array use as delete log
+        {
+            D_RW(root_LogArray)[i].PCurrentLeaf = OID_NULL;
+            D_RW(root_LogArray)[i].PLeaf = OID_NULL;
+            deleteLogQueue.push(&D_RW(root_LogArray)[i]);
         }
     #else
         bitmap_idx = MAX_LEAF_SIZE;
     #endif
-
 }
 
 
@@ -261,7 +327,7 @@ inline static uint8_t getOneByteHash(uint64_t key)
         return b.first_set();
     }
 
-    static void showList()
+    void FPtree::showList()
     {
         TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
         TOID(struct LeafNode) leafNode = D_RO(ListHead)->head;
@@ -277,6 +343,15 @@ inline static uint8_t getOneByteHash(uint64_t key)
             std::cout << std::endl;
             leafNode = D_RO(leafNode)->p_next;
         }
+        
+        // std::cout << "\nLogArray: \n";
+        // for (uint64_t i = 1; i < sizeLogArray; i++)
+        // {
+        //     LeafNode* leaf = (struct LeafNode *) pmemobj_direct((D_RO(root_LogArray)[i].PCurrentLeaf).oid);
+        //     if (leaf) std::cout << leaf->kv_pairs[0].key << "\n";
+        //     std::cout << leaf << std::endl;
+        //     // std::cout << D_RO(root_LogArray)[i].record << std::endl;
+        // }
     }
 
     static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg)
@@ -322,7 +397,7 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
     }
 }
 
-inline LeafNode* FPtree::findLeaf(uint64_t key) 
+LeafNode* FPtree::findLeaf(uint64_t key) 
 {
 	if (!root)
 		return nullptr;
@@ -361,6 +436,22 @@ inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
     return reinterpret_cast<LeafNode*> (cursor);
 }
 
+InnerNode* FPtree::findParent(uint64_t key, BaseNode* child)
+{
+    if (!root)
+        return nullptr;
+    InnerNode* cur = reinterpret_cast<InnerNode*> (root);
+    BaseNode* next;
+    while(cur->isInnerNode)
+    {
+        next = cur->p_children[cur->findChildIndex(key)];
+        if (next == child)
+            return cur;
+        else
+            cur = reinterpret_cast<InnerNode*> (next);
+    }
+    return nullptr;
+}
 
 static uint64_t abort_counter = 0;
 static uint64_t conflict_counter = 0;
@@ -376,6 +467,7 @@ static uint64_t read_abort_counter = 0;
 static uint64_t insert_abort_counter = 0;
 static uint64_t update_abort_counter = 0;
 static uint64_t scan_abort_counter = 0;
+static uint64_t exit_counter = 0;
 
 void FPtree::printTSXInfo() 
 {
@@ -491,46 +583,192 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     #endif
 
 
-    if (decision == Result::Split)
+    if (decision != Result::Split) // done without splitting
+        return;
+    /*---------------- Second Critical Section -----------------*/
     {   
-        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
-        lock_split.acquire(speculative_lock);
-        
         LeafNode* newLeafNode;
-        #ifdef PMEM
-            newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
-        #else
-            newLeafNode = reachedLeafNode->p_next;
-        #endif
+        InnerNode* newInnerNode;
+    #ifdef PMEM
+        newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
+    #else
+        newLeafNode = reachedLeafNode->p_next;
+    #endif
 
+    #ifdef TBB_2
+        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
+    #endif
+
+        uint64_t mid = floor(MAX_INNER_SIZE / 2), new_splitKey, insert_pos;
+        InnerNode* cur, *parent;
+        BaseNode* child;
+        thread_local InnerNode* inners[100];
+        thread_local short ppos[100];
+        short i = 0, j, k;
+        int status, threshold = THRESHOLD;
+        thread_local InnerNode* newInnerNodes[100];
+        for (k = 0; k < 100; k++)
+            newInnerNodes[k] = new InnerNode();
+        k = 0;
+
+    #ifdef TSX_2
+    TSX_BEGIN: 
+        if (threshold-- == 0)
+        {
+            printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
+            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            // threshold = THRESHOLD;
+            printTSXInfo();
+            return;
+        #ifdef TBB_2
+            goto TBB_BEGIN;
+        #endif
+        }
+        if ((status = _xbegin()) != _XBEGIN_STARTED)
+        {
+            // if (status & _XABORT_CONFLICT)
+            //     conflict_counter++;
+            // if (status & _XABORT_CAPACITY)
+            //     capacity_counter++;
+            // if (status & _XABORT_DEBUG)
+            //     debug_counter++;
+            // if ((status & _XABORT_RETRY) == 0)
+            //     failed_counter++;
+            // if (status & _XABORT_EXPLICIT) 
+            //     explicit_counter++;
+            // if (status & _XABORT_NESTED) 
+            //     nester_counter++;
+            // if (status == 0) 
+            //     zero_counter++;
+            goto TSX_BEGIN;
+        }
+        if (!root->isInnerNode) // splitting when tree has root only
+        {
+            newInnerNodes[k]->init(splitKey, reachedLeafNode, newLeafNode);
+            root = newInnerNodes[k++]; //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+        }
+        else // need to retraverse & update parent
+        {
+            cur = reinterpret_cast<InnerNode*> (root);
+            while(cur->isInnerNode)
+            {
+                inners[i] = cur;
+                ppos[i] = cur->findChildIndex(kv.key);
+                cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
+            }
+            parent = inners[--i];
+            child = newLeafNode;
+            while (true)
+            {
+                insert_pos = ppos[i--];
+                if (parent->nKey < MAX_INNER_SIZE)
+                {
+                    parent->addKey(insert_pos, splitKey, child);
+                    break;
+                }
+                else 
+                {
+                    // break;
+                    newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
+                    parent->nKey = mid;
+                    if (insert_pos != mid)
+                    {
+                        new_splitKey = parent->keys[mid];
+                        std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+                        std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
+                        if (insert_pos < mid)
+                            parent->addKey(insert_pos, splitKey, child);
+                        else
+                            newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
+                    }
+                    else 
+                    {
+                        new_splitKey = splitKey;
+                        std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
+                        std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
+                        newInnerNode->p_children[0] = child;
+                        newInnerNode->nKey = MAX_INNER_SIZE - mid;
+                    }
+
+                    splitKey = new_splitKey;
+
+                    if (parent == root)
+                    {
+                        newInnerNodes[k]->init(splitKey, parent, newInnerNode);
+                        root = newInnerNodes[k++]; //new InnerNode(splitKey, parent, newInnerNode);
+                        break;
+                    }
+                    parent = inners[i];
+                    child = newInnerNode;
+                }
+            }
+        }
+        _xend();
+        for (k; k < 100; k++)
+            delete newInnerNodes[k];
+        goto END;
+    #endif
+    // #ifdef TSX_2
+    // TSX_BEGIN: 
+    //     if (threshold-- == 0)
+    //     {
+    //         printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
+    //         // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    //     #ifdef TBB_2
+    //         goto TBB_BEGIN;
+    //     #endif
+    //     }
+    //     if (_xbegin() != _XBEGIN_STARTED)
+    //         goto TSX_BEGIN;
+    //     if (root->isInnerNode == false)
+    //     {
+    //         root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+    //     }
+    //     else if constexpr (MAX_INNER_SIZE != 1) 
+    //     {
+    //         reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+    //         parentNode = stack_innerNodes.pop();
+    //         updateParents(splitKey, parentNode, newLeafNode);
+    //     }
+    //     else // when inner node size equal to 1 
+    //     {
+    //         newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+    //         if (parentNode->keys[0] > splitKey)
+    //             parentNode->p_children[0] = newInnerNode;
+    //         else
+    //             parentNode->p_children[1] = newInnerNode;
+    //     }
+    //     _xend();
+    //     goto END;
+    // #endif
+    #ifdef TBB_2
+    TBB_BEGIN:
+        lock_split.acquire(speculative_lock);
         if (root->isInnerNode == false)
         {
-            root = new InnerNode();
-            reinterpret_cast<InnerNode*> (root)->nKey = 1;
-            reinterpret_cast<InnerNode*> (root)->keys[0] = splitKey;
-            reinterpret_cast<InnerNode*> (root)->p_children[0] = reachedLeafNode;
-            reinterpret_cast<InnerNode*> (root)->p_children[1] = newLeafNode;
-            lock_split.release();
-            return;
+            root = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
         }
-        if constexpr (MAX_INNER_SIZE != 1) 
+        else if constexpr (MAX_INNER_SIZE != 1) 
         {
-            updateParents(splitKey, parentNode, newLeafNode);
+            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+            // parentNode = stack_innerNodes.pop();
+            // updateParents(splitKey, parentNode, newLeafNode);
         }
         else // when inner node size equal to 1 
         {
-            InnerNode* newInnerNode = new InnerNode();
-            newInnerNode->nKey = 1;
-            newInnerNode->keys[0] = splitKey;
-            newInnerNode->p_children[0] = reachedLeafNode;
-            newInnerNode->p_children[1] = newLeafNode;
+            newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
             if (parentNode->keys[0] > splitKey)
                 parentNode->p_children[0] = newInnerNode;
             else
                 parentNode->p_children[1] = newInnerNode;
         }
         lock_split.release();
+    #endif
+    END:
+        newLeafNode->Unlock();
     }
+    /*---------------- End of Second Critical Section -----------------*/
 }
 
 
@@ -662,6 +900,8 @@ bool FPtree::update(struct KV kv)
 
 bool FPtree::insert(struct KV kv) 
 {
+    thread_local int count = 0;
+    count ++;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
     if (!root) // if tree is empty
     {
@@ -688,56 +928,66 @@ bool FPtree::insert(struct KV kv)
         lock_insert.release();
     }
 
+    Result decision = Result::Abort;
     LeafNode* reachedLeafNode;
-    volatile int retriesLeft = 5;
-    volatile unsigned status;
-    volatile uint64_t idx;
-    volatile Result decision = Result::Abort;
-    while (decision == Result::Abort)
+    int idx, threshold = THRESHOLD;
+    /*---------------- First Critical Section -----------------*/
     {
-        if ((status = _xbegin ()) == _XBEGIN_STARTED)
-        {   
-            reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-            if (!reachedLeafNode->Lock()) { _xabort(1); continue; }
-            idx = reachedLeafNode->findKVIndex(kv.key);
-            if (idx != MAX_LEAF_SIZE)
-            {
-                reachedLeafNode->Unlock();
-                _xend();
-                return false;
-            }
-            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-            _xend();
-        }
-        else
+    #ifdef TSX_1
+    TSX_BEGIN: 
+        if (threshold-- == 0)
         {
-            retriesLeft--;
-            if (retriesLeft < 0) 
-            {
-                insert_abort_counter++;
-                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-                lock_insert.acquire(speculative_lock);
-                reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
-                if (!reachedLeafNode->Lock()) { lock_insert.release(); continue; }
-                idx = reachedLeafNode->findKVIndex(kv.key);
-                if (idx != MAX_LEAF_SIZE)
-                {
-                    reachedLeafNode->Unlock();
-                    lock_insert.release();
-                    return false;
-                }
-                decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-                lock_insert.release();
-            }
+            printf("Cannot finish first critical section in %d tries for Insert - %d!\n", THRESHOLD, count);
+            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            printTSXInfo();
+            return false;
+        #ifdef TBB_1
+            threshold = 1;
+            goto TBB_BEGIN;
+        #endif
         }
-    }
-    splitLeafAndUpdateInnerParents(reachedLeafNode, stack_innerNodes.pop(), decision, kv);
-
-    #ifdef PMEM
-        if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->Unlock();
-    #else 
-        if (decision == Result::Split) reachedLeafNode->p_next->Unlock();
+        if (_xbegin() != _XBEGIN_STARTED)
+            goto TSX_BEGIN;
+        reachedLeafNode = findLeaf(kv.key);
+        if (!reachedLeafNode->Lock()) { _xabort(4); goto TSX_BEGIN; }
+        idx = reachedLeafNode->findKVIndex(kv.key);
+        if (idx != MAX_LEAF_SIZE)
+            reachedLeafNode->Unlock();
+        else
+            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+        _xend();
+        goto HTM_END;
     #endif
+    #ifdef TBB_1
+    TBB_BEGIN:
+        // insert_abort_counter++;
+        // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        lock_insert.acquire(speculative_lock);
+        reachedLeafNode = findLeaf(kv.key);
+        if (!reachedLeafNode->Lock()) 
+        { 
+            lock_insert.release(); 
+        #ifdef TSX_1
+            goto TSX_BEGIN;
+        #else
+            goto TBB_BEGIN;
+        #endif
+        }
+        idx = reachedLeafNode->findKVIndex(kv.key);
+        if (idx != MAX_LEAF_SIZE)
+            reachedLeafNode->Unlock();
+        else
+            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
+        lock_insert.release();
+    #endif
+    }
+    /*---------------- End of First Critical Section -----------------*/
+    HTM_END:
+
+    if (decision == Result::Abort)  // kv already exists
+        return false;
+
+    splitLeafAndUpdateInnerParents(reachedLeafNode, nullptr, decision, kv);
 
     reachedLeafNode->Unlock();
     
@@ -753,8 +1003,18 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
         TOID(struct LeafNode) *dst = &(leaf->p_next);
         TOID(struct LeafNode) nextLeafNode = leaf->p_next;
 
+        // Get uLog from splitLogQueue
+        Log* log;
+        if (!splitLogQueue.pop(log)) { assert("Split log queue pop error!"); }
+
+        //set uLog.PCurrentLeaf to persistent address of Leaf
+        log->PCurrentLeaf = pmemobj_oid(leaf);
+        pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+
         // Copy the content of Leaf into NewLeaf
         struct argLeafNode args(leaf);
+
+        log->PLeaf = *dst;
 
         POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
 
@@ -763,16 +1023,26 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
             if (D_RO(*dst)->kv_pairs[i].key < splitKey)
                 D_RW(*dst)->bitmap.reset(i);
         }
+        // Persist(NewLeaf.Bitmap)
         pmemobj_persist(pop, &D_RO(*dst)->bitmap, sizeof(D_RO(*dst)->bitmap));
 
+        // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
         leaf->bitmap = D_RO(*dst)->bitmap;
         if constexpr (MAX_LEAF_SIZE != 1)  leaf->bitmap.flip();
 
+        // Persist(Leaf.Bitmap)
+        pmemobj_persist(pop, &leaf->bitmap, sizeof(leaf->bitmap));
+
+        // Persist(Leaf.Next)
         D_RW(*dst)->p_next = nextLeafNode;
         pmemobj_persist(pop, &D_RO(*dst)->p_next, sizeof(D_RO(*dst)->p_next));
 
-        pmemobj_persist(pop, &leaf->bitmap, sizeof(leaf->bitmap));
-        // pmemobj_persist(pop, &leaf->p_next, sizeof(leaf->p_next));
+        // reset uLog
+        log->PCurrentLeaf = OID_NULL;
+        log->PLeaf = OID_NULL;
+        pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+        pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+        splitLogQueue.push(log);
     #else
         LeafNode* newLeafNode = new LeafNode(*leaf);
 
@@ -805,6 +1075,72 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
 
     return splitKey;
 }
+
+
+#ifdef PMEM
+    void FPtree::recoverSplit(Log* uLog)
+    {
+        if (TOID_IS_NULL(uLog->PCurrentLeaf))
+        {
+            return;
+        }
+        
+        if (TOID_IS_NULL(uLog->PLeaf))
+        {
+            uLog->PCurrentLeaf = OID_NULL;
+            uLog->PLeaf = OID_NULL;
+            return;
+        }
+        else
+        {
+            LeafNode* leaf = (struct LeafNode *) pmemobj_direct((uLog->PCurrentLeaf).oid);
+            uint64_t splitKey = findSplitKey(leaf);
+            if (leaf->isFull()) // Crashed before inverse the current leaf 
+            {
+                for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
+                {
+                    if (D_RO(uLog->PLeaf)->kv_pairs[i].key < splitKey)
+                        D_RW(uLog->PLeaf)->bitmap.reset(i);
+                }
+                // Persist(NewLeaf.Bitmap)
+                pmemobj_persist(pop, &D_RO(uLog->PLeaf)->bitmap, sizeof(D_RO(uLog->PLeaf)->bitmap));
+
+                // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
+                D_RW(uLog->PCurrentLeaf)->bitmap = D_RO(uLog->PLeaf)->bitmap;
+                if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
+
+                // Persist(Leaf.Bitmap)
+                pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
+
+                // Persist(Leaf.Next)
+                D_RW(uLog->PCurrentLeaf)->p_next = uLog->PLeaf;
+                pmemobj_persist(pop, &D_RO(uLog->PLeaf)->p_next, sizeof(D_RO(uLog->PLeaf)->p_next));
+
+                // reset uLog
+                uLog->PCurrentLeaf = OID_NULL;
+                uLog->PLeaf = OID_NULL;
+                return;
+            }
+            else    // Crashed after inverse the current leaf 
+            {
+                // Leaf.Bitmap = inverse(NewLeaf.Bitmap)
+                if constexpr (MAX_LEAF_SIZE != 1)  D_RW(uLog->PCurrentLeaf)->bitmap.flip();
+    
+                // Persist(Leaf.Bitmap)
+                pmemobj_persist(pop, &D_RO(uLog->PCurrentLeaf)->bitmap, sizeof(D_RO(uLog->PCurrentLeaf)->bitmap));
+
+                // Persist(Leaf.Next)
+                D_RW(uLog->PCurrentLeaf)->p_next = uLog->PLeaf;
+                pmemobj_persist(pop, &D_RO(uLog->PLeaf)->p_next, sizeof(D_RO(uLog->PLeaf)->p_next));
+
+                // reset uLog
+                uLog->PCurrentLeaf = OID_NULL;
+                uLog->PLeaf = OID_NULL;
+                return;
+            }
+        }
+    }
+#endif
 
 void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key)
 {
@@ -868,7 +1204,7 @@ bool FPtree::deleteKey(uint64_t key)
     LeafNode* leaf, *sibling = nullptr;
     InnerNode* indexNode, *parent; 
     uint64_t child_idx;
-    int status, retriesLeft = 5;
+    int status, retriesLeft = 15;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     Result decision = Result::Abort;
     LeafNodeStat lstat;
@@ -961,9 +1297,22 @@ bool FPtree::deleteKey(uint64_t key)
     {
         #ifdef PMEM
             TOID(struct LeafNode) lf = pmemobj_oid(leaf);
+            
+            // Get uLog from deleteLogQueue
+            Log* log;
+            if (!deleteLogQueue.pop(log)) { assert("Delete log queue pop error!"); }
+
+            //set uLog.PCurrentLeaf to persistent address of Leaf
+            log->PCurrentLeaf = lf;
+            pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+
             if (sibling) // set and persist sibling's p_next, then unlock sibling node
             {
                 TOID(struct LeafNode) sib = pmemobj_oid(sibling);
+                
+                log->PLeaf = sib;
+                pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+
                 D_RW(sib)->p_next = D_RO(lf)->p_next;
                 pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
                 sibling->Unlock();
@@ -982,6 +1331,13 @@ bool FPtree::deleteKey(uint64_t key)
                 root = nullptr;
             }
             POBJ_FREE(&lf);
+
+            // reset uLog
+            log->PCurrentLeaf = OID_NULL;
+            log->PLeaf = OID_NULL;
+            pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+            pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+            deleteLogQueue.push(log);
         #else
             if (sibling)
             {
@@ -1045,6 +1401,48 @@ bool FPtree::deleteKey(uint64_t key)
     //     return true;
     // }
 }
+
+#ifdef PMEM
+    void FPtree::recoverDelete(Log* uLog)
+    {
+        TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+        TOID(struct LeafNode) PHead = D_RW(ListHead)->head;
+
+        if( (!TOID_IS_NULL(uLog->PCurrentLeaf)) && (!TOID_IS_NULL(PHead)) )
+        {
+            D_RW(uLog->PLeaf)->p_next = D_RO(uLog->PCurrentLeaf)->p_next;
+            pmemobj_persist(pop, &D_RO(uLog->PLeaf)->p_next, SIZE_PMEM_POINTER);
+            D_RW(uLog->PLeaf)->Unlock();
+            POBJ_FREE(&(uLog->PCurrentLeaf));
+        }
+        else
+        {
+            if ( (!TOID_IS_NULL(uLog->PCurrentLeaf)) && 
+                ((struct LeafNode *) pmemobj_direct((uLog->PCurrentLeaf).oid) == 
+                (struct LeafNode *) pmemobj_direct(PHead.oid)) 
+            )
+            {
+                PHead = D_RO(uLog->PCurrentLeaf)->p_next; 
+                pmemobj_persist(pop, &PHead, SIZE_PMEM_POINTER);
+                POBJ_FREE(&(uLog->PCurrentLeaf));
+            }
+            else 
+            {
+                if ( (!TOID_IS_NULL(uLog->PCurrentLeaf)) && 
+                    ((struct LeafNode *) pmemobj_direct((D_RO(uLog->PCurrentLeaf)->p_next).oid) == 
+                    (struct LeafNode *) pmemobj_direct(PHead.oid)) 
+                )
+                    POBJ_FREE(&(uLog->PCurrentLeaf));
+                else { /* reset uLog */ }
+            }
+        }
+
+        // reset uLog
+        uLog->PCurrentLeaf = OID_NULL;
+        uLog->PLeaf = OID_NULL;
+        return;
+    }
+#endif
 
 bool FPtree::tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx)
 {
@@ -1164,6 +1562,7 @@ bool FPtree::ScanComplete()
     return this->current_leaf == nullptr;
 }
 
+
 uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
 {
 	LeafNode* leaf, * next_leaf;
@@ -1193,7 +1592,6 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
         		#endif
         		while (!next_leaf->Lock())
         			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-        		// next_leaf->_lock();
         		leaf->_unlock();
         		leaf = next_leaf;
         		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
@@ -1227,7 +1625,6 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
 	        		#endif
 	        		while (!next_leaf->Lock())
         				std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-        			// next_leaf->_lock();
 	        		leaf->_unlock();
 	        		leaf = next_leaf;
 	        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
@@ -1244,8 +1641,6 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
     });
-    // if (records.size() > scan_size)
-    // 	records.erase(records.begin() + scan_size, records.end());
     result = new char[sizeof(KV) * records.size()];
     memcpy(result, records.data(), sizeof(KV) * records.size());
     return records.size();
@@ -1302,7 +1697,6 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
                 updateParents(min_keys[idx], right_most_innnerNode, child_nodes[idx+1]);
             }
         }
-        
         return true;
     }
 #endif
@@ -1322,7 +1716,7 @@ uint64_t rdtsc(){
 
 
 
-#if TEST_MODE == 1
+#if TEST_MODE == 2
     int main(int argc, char *argv[]) 
     {
         srand( (unsigned) time(NULL) * getpid());
@@ -1332,7 +1726,7 @@ uint64_t rdtsc(){
             const char* command = argv[1];
             if (command != NULL && strcmp(command, "show") == 0)
             {  
-                showList();
+                fptree.showList();
                 return 0;
             }
         #endif
@@ -1362,8 +1756,8 @@ uint64_t rdtsc(){
             {
                 // fptree.insert(kv);
                 if (!fptree.getRoot())
-                    for (size_t i = 0; i < 6000; i++)
-                        fptree.insert(KV(rand() % 6000 + 2, 1));
+                    for (size_t i = 0; i < 100; i++)
+                        fptree.insert(KV(rand() % 100 + 2, 1));
                 else
                     fptree.insert(kv);
             }
@@ -1371,7 +1765,7 @@ uint64_t rdtsc(){
             #ifdef PMEM
                 std::cout << std::endl;
                 std::cout << "show list: " << std::endl;
-                showList();
+                fptree.showList();
             #endif
         }
 

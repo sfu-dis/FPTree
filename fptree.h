@@ -27,6 +27,7 @@
 #include <tbb/spin_rw_mutex.h>
 #include <immintrin.h>
 #include <thread>
+#include <boost/lockfree/queue.hpp>
 
 #define NDEBUG
 #include <cassert>
@@ -35,21 +36,33 @@
 
 #define TEST_MODE 0
 
-#define PMEM 
+//#define PMEM 
+
+#define TSX_1   // Use intel tsx for first critical section
+
+//#define TBB_1   // Use speculative lock for ...
+
+#define TSX_2   // ... for second critical section
+
+//#define TBB_2
+
+#define THRESHOLD 50    // # of retries for TSX, > 0
 
 // static const uint64_t kMaxEntries = 256;
-#if TEST_MODE == 0
+#if TEST_MODE == 1
     #define MAX_INNER_SIZE 1024
     #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
+    #define SIZE_PMEM_POINTER 16
 #else
     #define MAX_INNER_SIZE 3
     #define MAX_LEAF_SIZE 4
     #define SIZE_ONE_BYTE_HASH 1
+    #define SIZE_PMEM_POINTER 16
 #endif
 
 #if MAX_LEAF_SIZE > 64
-#error "Number of kv pairs in LeafNode must be <= 64."
+    #error "Number of kv pairs in LeafNode must be <= 64."
 #endif
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
@@ -61,10 +74,18 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
     #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 11) * 1000)  /* 11 GB */
 
-    POBJ_LAYOUT_BEGIN(List);
-    POBJ_LAYOUT_ROOT(List, struct List);
-    POBJ_LAYOUT_TOID(List, struct LeafNode);
-    POBJ_LAYOUT_END(List);
+    POBJ_LAYOUT_BEGIN(FPtree);
+    POBJ_LAYOUT_ROOT(FPtree, struct List);
+    POBJ_LAYOUT_TOID(FPtree, struct LeafNode);
+    // POBJ_LAYOUT_TOID(FPtree, struct SplitLog);
+    // POBJ_LAYOUT_ROOT(FPtree, struct RootSplitLogArray);
+    POBJ_LAYOUT_END(FPtree);
+
+    POBJ_LAYOUT_BEGIN(Array);
+    // POBJ_LAYOUT_TOID(Array, struct LeafNode);
+    POBJ_LAYOUT_TOID(Array, struct Log);
+    // POBJ_LAYOUT_TOID(Array, struct DeleteLog);
+    POBJ_LAYOUT_END(Array);
 
     inline PMEMobjpool *pop;
 #endif
@@ -74,8 +95,6 @@ static uint8_t getOneByteHash(uint64_t key);
 
 #ifdef PMEM
     uint64_t findFirstZero(TOID(struct LeafNode) *dst);
-
-    static void showList();
 #endif
 
 
@@ -184,8 +203,11 @@ struct InnerNode : BaseNode
 
 public:
     InnerNode();
+    InnerNode(uint64_t key, BaseNode* left, BaseNode* right);
     InnerNode(const InnerNode& inner);
     ~InnerNode();
+
+    void init(uint64_t key, BaseNode* left, BaseNode* right);
 
     // return index of child in p_children when searching key in this innernode
     uint64_t findChildIndex(uint64_t key);
@@ -323,6 +345,24 @@ public:
     };
 #endif
 
+
+/*
+    uLog
+*/
+#ifdef PMEM
+    struct Log 
+    {
+        TOID(struct LeafNode) PCurrentLeaf;
+        TOID(struct LeafNode) PLeaf;
+    };
+
+    static const uint64_t sizeLogArray = 128;
+
+    static boost::lockfree::queue<Log*> splitLogQueue = boost::lockfree::queue<Log*>(sizeLogArray);
+    static boost::lockfree::queue<Log*> deleteLogQueue = boost::lockfree::queue<Log*>(sizeLogArray);
+#endif
+
+
 struct Stack 
 {
 public:
@@ -406,6 +446,14 @@ public:
 
     #ifdef PMEM
         bool bulkLoad(float load_factor);
+        
+        void recoverSplit(Log* uLog);
+
+        void recoverDelete(Log* uLog);
+
+        void recover();
+
+        void showList();
     #endif
 
 private:
@@ -415,6 +463,8 @@ private:
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
+
+    InnerNode* findParent(uint64_t key, BaseNode* child);
 
     uint64_t findSplitKey(LeafNode* leaf);
 
