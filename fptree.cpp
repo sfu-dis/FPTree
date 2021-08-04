@@ -589,7 +589,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     {   
         LeafNode* newLeafNode;
         InnerNode* newInnerNode;
-        int threshold = THRESHOLD;
     #ifdef PMEM
         newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
     #else
@@ -606,7 +605,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         thread_local InnerNode* inners[100];
         thread_local short ppos[100];
         short i = 0, j, k;
-        int status;
+        int status, threshold = THRESHOLD;
         thread_local InnerNode* newInnerNodes[100];
         for (k = 0; k < 100; k++)
             newInnerNodes[k] = new InnerNode();
@@ -643,12 +642,12 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             //     zero_counter++;
             goto TSX_BEGIN;
         }
-        if (root->isInnerNode == false)
+        if (!root->isInnerNode) // splitting when tree has root only
         {
             newInnerNodes[k]->init(splitKey, reachedLeafNode, newLeafNode);
             root = newInnerNodes[k++]; //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
         }
-        else //if constexpr (MAX_INNER_SIZE != 1) 
+        else // need to retraverse & update parent
         {
             cur = reinterpret_cast<InnerNode*> (root);
             while(cur->isInnerNode)
@@ -659,22 +658,22 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             }
             parent = inners[--i];
             child = newLeafNode;
-            while (decision == Result::Split)
+            while (true)
             {
                 insert_pos = ppos[i--];
                 if (parent->nKey < MAX_INNER_SIZE)
                 {
                     parent->addKey(insert_pos, splitKey, child);
-                    decision = Result::Abort; // break;
+                    break;
                 }
                 else 
                 {
                     // break;
                     newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
+                    parent->nKey = mid;
                     if (insert_pos != mid)
                     {
                         new_splitKey = parent->keys[mid];
-                        parent->nKey = mid;
                         std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
                         std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
                         newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
@@ -683,9 +682,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                         else
                             newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
                     }
-                    else {
+                    else 
+                    {
                         new_splitKey = splitKey;
-                        parent->nKey = mid;
                         std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
                         std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
                         newInnerNode->p_children[0] = child;
@@ -698,21 +697,13 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     {
                         newInnerNodes[k]->init(splitKey, parent, newInnerNode);
                         root = newInnerNodes[k++]; //new InnerNode(splitKey, parent, newInnerNode);
-                        decision = Result::Abort; // break;
+                        break;
                     }
                     parent = inners[i];
                     child = newInnerNode;
                 }
             }
         }
-        // else // when inner node size equal to 1 
-        // {
-        //     newInnerNode = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
-        //     if (parentNode->keys[0] > splitKey)
-        //         parentNode->p_children[0] = newInnerNode;
-        //     else
-        //         parentNode->p_children[1] = newInnerNode;
-        // }
         _xend();
         for (k; k < 100; k++)
             delete newInnerNodes[k];
