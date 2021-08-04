@@ -917,7 +917,7 @@ bool FPtree::update(struct KV kv)
 
 bool FPtree::insert(struct KV kv) 
 {
-    thread_local count = 0;
+    thread_local int count = 0;
     count ++;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
     if (!root) // if tree is empty
