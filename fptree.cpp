@@ -607,7 +607,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         thread_local InnerNode* inners[100];
         thread_local short ppos[100];
         short i = 0, j, k;
-        int status;
+        int status, test = 0;
         thread_local InnerNode* newInnerNodes[100];
         for (k = 0; k < 100; k++)
             newInnerNodes[k] = new InnerNode();
@@ -620,6 +620,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
             // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             printTSXInfo();
+            printf("\n Test: %d \n", test);
             return;
         #ifdef TBB_2
             goto TBB_BEGIN;
@@ -653,8 +654,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         if (root->isInnerNode == false)
         {
+            test = 1;
             newInnerNodes[k]->init(splitKey, reachedLeafNode, newLeafNode);
             root = newInnerNodes[k++]; //new InnerNode(splitKey, reachedLeafNode, newLeafNode);
+            test = 0;
         }
         else if constexpr (MAX_INNER_SIZE != 1) 
         {
@@ -679,7 +682,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 }
                 else 
                 {
+                    test = 2;
                     newInnerNode = newInnerNodes[k++]; //new InnerNode(); 
+                    test = 0;
                     // break;
                     if (insert_pos != mid)
                     {
@@ -714,8 +719,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
                     if (parent == root)
                     {
+                        test = 3;
                         newInnerNodes[k]->init(splitKey, parent, newInnerNode);
                         root = newInnerNodes[k++]; //new InnerNode(splitKey, parent, newInnerNode);
+                        test = 0;
                         break;
                     }
                     parent = inners[i];
