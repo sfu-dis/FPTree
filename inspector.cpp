@@ -287,7 +287,10 @@ void thread_load(FPtree & tree, std::vector<uint64_t> & keys, std::vector<uint64
 		stop = (id + 1) * workload;
 	for (uint64_t i = id * workload; i < stop; i++)
 		if (!tree.insert(KV(keys[i], values[i])))
+		{
 			printf("Insert failed! Key: %llu Value: %llu\n", keys[i], values[i]);
+			exit(1);
+		}
 }
 
 void thread_delete(FPtree & tree, std::vector<uint64_t> & keys, uint64_t id) {
