@@ -617,10 +617,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         if (threshold-- == 0)
         {
             printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
-            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            threshold = THRESHOLD;
-            // printTSXInfo();
-            // return;
+            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            // threshold = THRESHOLD;
+            printTSXInfo();
+            return;
         #ifdef TBB_2
             goto TBB_BEGIN;
         #endif
