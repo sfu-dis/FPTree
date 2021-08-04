@@ -953,7 +953,7 @@ bool FPtree::insert(struct KV kv)
         if (threshold-- == 0)
         {
             printf("Cannot finish first critical section in %d tries!\n", THRESHOLD);
-            // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         #ifdef TBB_1
             threshold = 1;
             goto TBB_BEGIN;
