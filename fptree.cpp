@@ -627,20 +627,20 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         if ((status = _xbegin()) != _XBEGIN_STARTED)
         {
-            if (status & _XABORT_CONFLICT)
-                conflict_counter++;
-            if (status & _XABORT_CAPACITY)
-                capacity_counter++;
-            if (status & _XABORT_DEBUG)
-                debug_counter++;
-            if ((status & _XABORT_RETRY) == 0)
-                failed_counter++;
-            if (status & _XABORT_EXPLICIT) 
-                explicit_counter++;
-            if (status & _XABORT_NESTED) 
-                nester_counter++;
-            if (status == 0) 
-                zero_counter++;
+            // if (status & _XABORT_CONFLICT)
+            //     conflict_counter++;
+            // if (status & _XABORT_CAPACITY)
+            //     capacity_counter++;
+            // if (status & _XABORT_DEBUG)
+            //     debug_counter++;
+            // if ((status & _XABORT_RETRY) == 0)
+            //     failed_counter++;
+            // if (status & _XABORT_EXPLICIT) 
+            //     explicit_counter++;
+            // if (status & _XABORT_NESTED) 
+            //     nester_counter++;
+            // if (status == 0) 
+            //     zero_counter++;
             goto TSX_BEGIN;
         }
         if (root->isInnerNode == false)
