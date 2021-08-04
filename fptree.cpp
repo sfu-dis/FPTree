@@ -105,7 +105,7 @@ void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_c
     this->nKey++;
 }
 
-uint64_t InnerNode::findChildIndex(uint64_t key)
+inline uint64_t InnerNode::findChildIndex(uint64_t key)
 {
     auto begin = std::begin(this->keys);
     auto lower = std::lower_bound(begin, begin + this->nKey, key);
@@ -616,7 +616,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     TSX_BEGIN: 
         if (threshold-- == 0)
         {
-            printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
+            printf("Cannot finish second critical section in %d tries! Insert - %d\n", THRESHOLD, count);
             // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             // threshold = THRESHOLD;
             printTSXInfo();
