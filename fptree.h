@@ -1,3 +1,5 @@
+#pragma once
+#define NDEBUG
 #include <stdio.h>    
 #include <stdlib.h> 
 #include <iostream>
@@ -23,24 +25,20 @@
 #include <random>
 #include <climits>
 #include <functional>
-#include <tbb/spin_mutex.h>
-#include <tbb/spin_rw_mutex.h>
+#include <mutex>
+#include <cassert>
 #include <immintrin.h>
 #include <thread>
+#include <tbb/spin_mutex.h>
+#include <tbb/spin_rw_mutex.h>
 #include <boost/lockfree/queue.hpp>
-
-#define NDEBUG
-#include <cassert>
-
-#pragma once
 
 #define TEST_MODE 0
 
-#define PMEM 
+// #define PMEM 
 
-// static const uint64_t kMaxEntries = 256;
 #if TEST_MODE == 0
-    #define MAX_INNER_SIZE 1024
+    #define MAX_INNER_SIZE 128
     #define MAX_LEAF_SIZE 48
     #define SIZE_ONE_BYTE_HASH 1
     #define SIZE_PMEM_POINTER 16
@@ -52,7 +50,7 @@
 #endif
 
 #if MAX_LEAF_SIZE > 64
-#error "Number of kv pairs in LeafNode must be <= 64."
+    #error "Number of kv pairs in LeafNode must be <= 64."
 #endif
 
 const static uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
@@ -67,13 +65,10 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
     POBJ_LAYOUT_BEGIN(FPtree);
     POBJ_LAYOUT_ROOT(FPtree, struct List);
     POBJ_LAYOUT_TOID(FPtree, struct LeafNode);
-    // POBJ_LAYOUT_TOID(FPtree, struct SplitLog);
-    // POBJ_LAYOUT_ROOT(FPtree, struct RootSplitLogArray);
     POBJ_LAYOUT_END(FPtree);
 
     POBJ_LAYOUT_BEGIN(Array);
-    // POBJ_LAYOUT_TOID(Array, struct LeafNode);
-    POBJ_LAYOUT_TOID(Array, struct SplitLog);
+    POBJ_LAYOUT_TOID(Array, struct Log);
     POBJ_LAYOUT_END(Array);
 
     inline PMEMobjpool *pop;
@@ -84,8 +79,6 @@ static uint8_t getOneByteHash(uint64_t key);
 
 #ifdef PMEM
     uint64_t findFirstZero(TOID(struct LeafNode) *dst);
-
-    static void showList();
 #endif
 
 
@@ -220,7 +213,6 @@ struct LeafNodeStat
 struct LeafNode : BaseNode
 {
     __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
-    // std::bitset<MAX_LEAF_SIZE> bitmap;
     Bitset bitmap;
     
     KV kv_pairs[MAX_LEAF_SIZE];
@@ -232,7 +224,6 @@ struct LeafNode : BaseNode
     #endif
     
     std::atomic<uint64_t> lock;
-    //uint64_t lock;
 
     friend class FPtree;
 
@@ -271,8 +262,7 @@ public:
     void _lock() 
     { 
         uint64_t expected = 0;
-        while (!std::atomic_compare_exchange_strong(&lock, &expected, 1))
-            expected = 0;
+        while (!std::atomic_compare_exchange_strong(&lock, &expected, 1)) { expected = 0; }
     }
     void _unlock() 
     { 
@@ -298,7 +288,6 @@ public:
     struct argLeafNode {
         size_t size;
         bool isInnerNode;
-        // std::bitset<MAX_LEAF_SIZE> bitmap;
         Bitset bitmap;
         __attribute__((aligned(64))) uint8_t fingerprints[MAX_LEAF_SIZE];
         KV kv_pairs[MAX_LEAF_SIZE];
@@ -334,16 +323,20 @@ public:
 #endif
 
 
+/*
+    uLog
+*/
 #ifdef PMEM
-    struct SplitLog 
+    struct Log 
     {
         TOID(struct LeafNode) PCurrentLeaf;
-        TOID(struct LeafNode) PNewLeaf;
+        TOID(struct LeafNode) PLeaf;
     };
 
-    static const uint64_t sizeSplitLogArray = 128;
+    static const uint64_t sizeLogArray = 128;
 
-    static boost::lockfree::queue<SplitLog*> splitLogQueue = boost::lockfree::queue<SplitLog*>(sizeSplitLogArray);
+    static boost::lockfree::queue<Log*> splitLogQueue = boost::lockfree::queue<Log*>(sizeLogArray);
+    static boost::lockfree::queue<Log*> deleteLogQueue = boost::lockfree::queue<Log*>(sizeLogArray);
 #endif
 
 
@@ -431,9 +424,13 @@ public:
     #ifdef PMEM
         bool bulkLoad(float load_factor);
         
-        void recoverSplit(SplitLog* uLog);
+        void recoverSplit(Log* uLog);
+
+        void recoverDelete(Log* uLog);
 
         void recover();
+
+        void showList();
     #endif
 
 private:

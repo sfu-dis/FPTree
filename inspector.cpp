@@ -12,21 +12,20 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 10000000
+#define NUM_RECORDS 1000000		// Number of records to start with
 
-#define INSERT_RATIO 0
+#define NUM_WORKER_THREAD 1		// Number of worker threads for insert, delete
 
-#define UPDATE_RATIO 0 
+#define NUM_INSPECTOR_THREAD 48	// Number of threads that walks tree in parallel
 
-#define READ_RATIO 0 
+#define CHECK_INNER 0			// Whether verifies correctness of innernode
 
-#define DELETE_RATIO 0
+#define CHECK_INSERT 1			// Check tree integrity after loading NUM_RECORDS records
 
-#define MAX_NUM_THREAD 48
+#define DELETE 0				// Whether delete half of keys after loading
+#define CHECK_DELETE 1			// Check tree integrity after delete half
 
-#define CHECK_INSERT 0
-
-#define CHECK_DELETE 1
+#define BULK_LOAD 0				// Create another tree using the test_pool, check integrity
 
 static thread_local std::unordered_map<uint64_t, uint64_t> count_;
 
@@ -34,7 +33,7 @@ struct Queue
 {
 public:
 
-    std::thread queue_[MAX_NUM_THREAD];
+    std::thread queue_[NUM_INSPECTOR_THREAD];
     uint64_t head, tail;
     bool empty;
 
@@ -46,7 +45,7 @@ public:
         if (head == tail && !empty)	// if full
         	return false;
     	queue_[tail] = std::move(t);
-    	tail = (tail + 1) % MAX_NUM_THREAD;
+    	tail = (tail + 1) % NUM_INSPECTOR_THREAD;
     	empty = false;
     	return true;
     }
@@ -57,7 +56,7 @@ public:
     	else
     	{
     		queue_[head].join();
-			head = (head + 1) % MAX_NUM_THREAD;
+			head = (head + 1) % NUM_INSPECTOR_THREAD;
 			if (head == tail)
 				empty = true;
     	}
@@ -68,9 +67,9 @@ public:
     	if (head < tail)
     		return tail - head;
     	else if (head > tail)
-    		return MAX_NUM_THREAD - head + tail;
+    		return NUM_INSPECTOR_THREAD - head + tail;
     	else
-    		return empty? 0 : MAX_NUM_THREAD;
+    		return empty? 0 : NUM_INSPECTOR_THREAD;
     }
 
     inline bool isEmpty() { return empty; }
@@ -113,12 +112,17 @@ bool Inspector::SanityCheck(FPtree& tree, std::vector<uint64_t>& keys, std::vect
 	std::cout << "\nLeafNode check\n";
 	KVPresenceCheck(tree, keys, values);
 
-	if (tree.root->isInnerNode){
+	#if CHECK_INNER == 1
 		std::cout << "\nInnerNode check\n";
-		std::vector<uint64_t> vec(keys);
-		std::sort(vec.begin(), vec.end());
-		InnerNodeOrderCheck(reinterpret_cast<InnerNode*>(tree.root), vec);
-	}
+		if (tree.root->isInnerNode){
+			
+			std::vector<uint64_t> vec(keys);
+			std::sort(vec.begin(), vec.end());
+			InnerNodeOrderCheck(reinterpret_cast<InnerNode*>(tree.root), vec);
+		}
+	#else
+		printf("Skip innernode check.\n");
+	#endif
 
 	return !(kv_missing_count_ || kv_duplicate_count_ || inner_order_violation_count_ || 
 	inner_boundary_violation_count_ || inner_duplicate_count_ || inner_invalid_count_);
@@ -264,8 +268,7 @@ void Inspector::ClearStats()
 	inner_invalid_count_ = 0;
 }
 
-void shuffle(std::vector<uint64_t>& keys, std::vector<uint64_t>& values){
-	srand (0); //(time(NULL));
+void shuffle(std::vector<uint64_t>& keys, std::vector<uint64_t>& values) {
 	uint64_t i, j, times = keys.size()/2;
 	for (uint64_t k = 0; k < times; k++)
 	{
@@ -276,47 +279,120 @@ void shuffle(std::vector<uint64_t>& keys, std::vector<uint64_t>& values){
 	}
 }
 
+void thread_load(FPtree & tree, std::vector<uint64_t> & keys, std::vector<uint64_t> & values, uint64_t id) {
+	uint64_t workload = NUM_RECORDS / NUM_WORKER_THREAD, stop;
+	if (id == NUM_WORKER_THREAD - 1)	// last thread, load all keys left
+		stop = NUM_RECORDS;
+	else	// just normal workload
+		stop = (id + 1) * workload;
+	for (uint64_t i = id * workload; i < stop; i++)
+		if (!tree.insert(KV(keys[i], values[i])))
+		{
+			printf("Insert failed! Key: %llu Value: %llu\n", keys[i], values[i]);
+			exit(1);
+		}
+}
+
+void thread_delete(FPtree & tree, std::vector<uint64_t> & keys, uint64_t id) {
+	uint64_t half = keys.size() / 2;
+	uint64_t workload = (NUM_RECORDS - half) / NUM_WORKER_THREAD, stop;
+	if (id == NUM_WORKER_THREAD - 1)	// last thread, delete all keys left
+		stop = NUM_RECORDS;
+	else	// just normal workload
+		stop = (id + 1) * workload + half;
+	for (uint64_t i = id * workload + half; i < stop; i++)
+		if (!tree.deleteKey(keys[i]))
+			printf("Delete failed! Key: %llu \n", keys[i]);
+}
+
 int main()
 {
+	printf("Number of Records: %llu\n", NUM_RECORDS);
+	printf("Number of worker thread: %d\n", NUM_WORKER_THREAD);
+	printf("Number of inspector thread: %d\n", NUM_INSPECTOR_THREAD);
+
+
+	srand (0); //(time(NULL));
 	std::independent_bits_engine<std::default_random_engine, 64, uint64_t> rbe;
     std::vector<uint64_t> keys(NUM_RECORDS);
     std::generate(begin(keys), end(keys), std::ref(rbe));
     std::vector<uint64_t> values(NUM_RECORDS);
     std::generate(begin(values), end(values), std::ref(rbe));
-
     std::cout << "Key generation complete, start loading...\n";
 
-    auto start = std::chrono::steady_clock::now();
     FPtree fptree;
-    for (uint64_t i = 0; i < NUM_RECORDS; i++)
-        fptree.insert(KV(keys[i], values[i]));
-
     Inspector ins;
-
+    std::vector<std::thread> workers(NUM_WORKER_THREAD);
+    
+    auto start = std::chrono::steady_clock::now();
+    
+    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+    	workers[i] = std::thread(thread_load, std::ref(fptree), std::ref(keys), std::ref(values), i);
+    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+	    workers[i].join();
+    // for (uint64_t i = 0; i < NUM_RECORDS; i++)
+    // 	fptree.insert(KV(keys[i], values[i]));
     std::cout << "Loading complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec). start testing...\n";
 
+
     #if CHECK_INSERT == 1
+    	printf("Starting sanity check for insert...\n");
 	    if (ins.SanityCheck(fptree, keys, values))
 	    	std::cout << "Sanity check for insertion passed!\n";
 	    else
+	    {
+	    	std::cout << "Sanity check for insertion failed!\n";
+	    	//fptree.printFPTree("├──", fptree.getRoot());
+	    	// #ifdef PMEM
+      //           showList();
+      //       #endif
 	    	return -1;
+	    }
+	#else
+	    printf("Skip insertion check.\n");
 	#endif
 
-    shuffle(keys, values);
-    start = std::chrono::steady_clock::now();
-    uint64_t half = NUM_RECORDS / 2;
-    for (uint64_t i = keys.size() - 1; i >= half; i--)
-    	fptree.deleteKey(keys[i]);
-    std::cout << "Deletion complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec)\n";
-    keys.erase(keys.begin() + half, keys.end());
-    values.erase(values.begin() + half, values.end());
 
-    #if CHECK_DELETE == 1
-	    if (ins.SanityCheck(fptree, keys, values))
-			std::cout << "Sanity check for deletion passed!\n";
+	#if DELETE == 1
+	    printf("Deleting half of keys randomly.\n");
+	    shuffle(keys, values);
+	    start = std::chrono::steady_clock::now();
+	    uint64_t half = keys.size() / 2;
+	    workers.clear();
+	    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+    		workers[i] = std::thread(thread_delete, std::ref(fptree), std::ref(keys), i);
+	    for (uint64_t i = 0; i < NUM_WORKER_THREAD; i++)
+	    	workers[i].join();
+	    std::cout << "Deletion complete (" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() << " sec)\n";
+	    keys.erase(keys.begin() + half, keys.end());
+	    values.erase(values.begin() + half, values.end());
+
+	    #if CHECK_DELETE == 1
+	    	printf("Starting sanity check for delete...\n");
+		    if (ins.SanityCheck(fptree, keys, values))
+				std::cout << "Sanity check for deletion passed!\n";
+		    else
+		    	return -1;
+		#else
+		    printf("Skip deletion check.\n");
+		#endif
+	#endif
+
+	#if BULK_LOAD
+		printf("Bulk load current index!\n");
+		FPtree bulk_load_tree;
+		if (ins.SanityCheck(bulk_load_tree, keys, values))
+			std::cout << "Sanity check for bulk load passed!\n";
 	    else
 	    	return -1;
+	#else
 	#endif
+
+	// #if UPDATE == 1
+	// 	printf("Updating all values...\n");
+
+	// #endif
+
 
     fptree.printTSXInfo();
 
