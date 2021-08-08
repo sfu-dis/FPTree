@@ -28,23 +28,27 @@
 #include <immintrin.h>
 #include <thread>
 #include <boost/lockfree/queue.hpp>
+#include <malloc.h>
+#include "mempool.h"
+
+static FPTreeMemPool mp;
 
 #define NDEBUG
 #include <cassert>
 
 #pragma once
 
-#define TEST_MODE 0
+#define TEST_MODE 1
 
 //#define PMEM 
 
-#define TSX_1   // Use intel tsx for first critical section
+//#define TSX_1   // Use intel tsx for first critical section
 
-//#define TBB_1   // Use speculative lock for ...
+#define TBB_1   // Use speculative lock for ...
 
-#define TSX_2   // ... for second critical section
+//#define TSX_2   // ... for second critical section
 
-//#define TBB_2
+#define TBB_2
 
 #define THRESHOLD 50    // # of retries for TSX, > 0
 
@@ -259,7 +263,7 @@ public:
     // return position of first unset bit in bitmap, return bitmap size if all bits are set
     uint64_t findFirstZero();
 
-    bool isFull() { return this->bitmap.is_full(); }
+    inline bool isFull() { return this->bitmap.is_full(); }
 
     void addKV(struct KV kv);
 
