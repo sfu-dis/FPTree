@@ -1,4 +1,5 @@
 main.cpp
+makefile
 
 # Prerequisites
 *.d

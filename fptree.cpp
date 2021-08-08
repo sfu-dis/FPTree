@@ -1274,88 +1274,88 @@ bool FPtree::scanComplete()
 }
 
 
-uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
-{
-	LeafNode* leaf, * next_leaf;
-	std::vector<KV> records;
-	records.reserve(scan_size);
-	uint64_t i;
-	int retriesLeft = 15;
-	tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
+    uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
+    {
+    LeafNode* leaf, * next_leaf;
+    std::vector<KV> records;
+    records.reserve(scan_size);
+    uint64_t i;
+    int retriesLeft = 15;
+    tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
     while (true) 
     {
         if (_xbegin() == _XBEGIN_STARTED)
         {
-        	if ((leaf = findLeaf(key)) == nullptr) { _xend(); return 0; }
-        	if (!leaf->Lock()) { _xabort(1); continue; }
-        	for (i = 0; i < MAX_LEAF_SIZE; i++)
-        		if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
-        			records.push_back(leaf->kv_pairs[i]);
-        	while (records.size() < scan_size)
-        	{
-        		#ifdef PMEM
-	        		if (TOID_IS_NULL(leaf->p_next))
-	        			break;
-        			next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
-        		#else
-        			if ((next_leaf = leaf->p_next) == nullptr)
-        				break;
-        		#endif
-        		while (!next_leaf->Lock())
-        			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-        		leaf->Unlock();
-        		leaf = next_leaf;
-        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
-	        		if (leaf->bitmap.test(i))
-	        			records.push_back(leaf->kv_pairs[i]);
-        	}
-        	_xend();
-        	break;
+            if ((leaf = findLeaf(key)) == nullptr) { _xend(); return 0; }
+            if (!leaf->Lock()) { _xabort(1); continue; }
+            for (i = 0; i < MAX_LEAF_SIZE; i++)
+                if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
+                    records.push_back(leaf->kv_pairs[i]);
+            while (records.size() < scan_size)
+            {
+                #ifdef PMEM
+                    if (TOID_IS_NULL(leaf->p_next))
+                        break;
+                    next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
+                #else
+                    if ((next_leaf = leaf->p_next) == nullptr)
+                        break;
+                #endif
+                while (!next_leaf->Lock())
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+                leaf->Unlock();
+                leaf = next_leaf;
+                for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
+                    if (leaf->bitmap.test(i))
+                        records.push_back(leaf->kv_pairs[i]);
+            }
+            _xend();
+            break;
         }
         else
         {
-        	retriesLeft--;
-        	if (retriesLeft < 0)
-        	{
+            retriesLeft--;
+            if (retriesLeft < 0)
+            {
                 scan_abort_counter++;
-        		lock_scan.acquire(speculative_lock, true);
-        		if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
-	        	if (!leaf->Lock()) { lock_scan.release(); continue; }
-	        	for (i = 0; i < MAX_LEAF_SIZE; i++)
-	        		if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
-	        			records.push_back(leaf->kv_pairs[i]);
-	        	while (records.size() < scan_size)
-	        	{
-	        		#ifdef PMEM
-		        		if (TOID_IS_NULL(leaf->p_next))
-		        			break;
-	        			next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
-	        		#else
-	        			if ((next_leaf = leaf->p_next) == nullptr)
-	        				break;
-	        		#endif
-	        		while (!next_leaf->Lock())
-        				std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	        		leaf->Unlock();
-	        		leaf = next_leaf;
-	        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
-		        		if (leaf->bitmap.test(i))
-		        			records.push_back(leaf->kv_pairs[i]);
-	        	}
-	        	lock_scan.release();
-	        	break;
-        	}
+                lock_scan.acquire(speculative_lock, true);
+                if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
+                if (!leaf->Lock()) { lock_scan.release(); continue; }
+                for (i = 0; i < MAX_LEAF_SIZE; i++)
+                    if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
+                        records.push_back(leaf->kv_pairs[i]);
+                while (records.size() < scan_size)
+                {
+                    #ifdef PMEM
+                        if (TOID_IS_NULL(leaf->p_next))
+                            break;
+                        next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
+                    #else
+                        if ((next_leaf = leaf->p_next) == nullptr)
+                            break;
+                    #endif
+                    while (!next_leaf->Lock())
+                        std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+                    leaf->Unlock();
+                    leaf = next_leaf;
+                    for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
+                        if (leaf->bitmap.test(i))
+                            records.push_back(leaf->kv_pairs[i]);
+                }
+                lock_scan.release();
+                break;
+            }
         }
     }
     if (leaf && leaf->lock == 1)
-    	leaf->Unlock();
+        leaf->Unlock();
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
     });
     result = new char[sizeof(KV) * records.size()];
     memcpy(result, records.data(), sizeof(KV) * records.size());
     return records.size();
-}
+    }
 
 
 
@@ -1427,7 +1427,7 @@ uint64_t rdtsc(){
 
 
 
-#if TEST_MODE == 1
+#if BUILD_INSPECTOR == 0
     int main(int argc, char *argv[]) 
     {
         srand( (unsigned) time(NULL) * getpid());
@@ -1483,10 +1483,10 @@ uint64_t rdtsc(){
         std::cout << "\nEnter the key to initialize scan: "; 
         std::cin >> key;
         std::cout << std::endl;
-        fptree.ScanInitialize(key);
-        while(!fptree.ScanComplete())
+        fptree.scanInitialize(key);
+        while(!fptree.scanComplete())
         {
-            KV kv = fptree.ScanNext();
+            KV kv = fptree.scanNext();
             std::cout << kv.key << "," << kv.value << " ";
         }
         std::cout << std::endl;

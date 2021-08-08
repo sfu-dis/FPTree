@@ -24,7 +24,6 @@ public:
 
 private:
     FPtree tree_;
-    // std::shared_mutex mutex_;
 };
 
 

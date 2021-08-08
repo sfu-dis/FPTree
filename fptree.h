@@ -1,6 +1,4 @@
 #pragma once
-#define NDEBUG
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -33,9 +31,7 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
-#define TEST_MODE 0
-
-// #define PMEM
+#define PMEM
 
 #if TEST_MODE == 0
     #define MAX_INNER_SIZE 128
