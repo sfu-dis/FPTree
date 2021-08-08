@@ -1,12 +1,3 @@
-/*
-    Copyright (c) Simon Fraser University. All rights reserved.
-    Licensed under the MIT license.
-    
-    Authors:
-    Duo Lu
-    George He
-*/
-
 #pragma once
 #define NDEBUG
 
@@ -44,7 +35,7 @@
 
 #define TEST_MODE 0
 
-#define PMEM
+// #define PMEM
 
 #if TEST_MODE == 0
     #define MAX_INNER_SIZE 128
@@ -208,8 +199,6 @@ struct InnerNode : BaseNode
 
     // add key at index pos, default add child to the right
     void addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right);
-
-    void updateKey(uint64_t old_key, uint64_t new_key);
 } __attribute__((aligned(64)));
 
 struct LeafNodeStat
