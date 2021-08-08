@@ -979,7 +979,7 @@ bool FPtree::insert(struct KV kv)
     #endif
     #ifdef TBB_1
     TBB_BEGIN:
-        insert_abort_counter++;
+        // insert_abort_counter++;
         // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         lock_insert.acquire(speculative_lock, false);
         if (!root->isInnerNode) 
