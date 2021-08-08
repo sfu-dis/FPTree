@@ -1,18 +1,26 @@
+/*
+    Copyright (c) Simon Fraser University. All rights reserved.
+    Licensed under the MIT license.
+    
+    Authors:
+    Duo Lu
+    George He
+*/
+
+
 #include "fptree.h"
 
-
 #ifdef PMEM
-    inline bool file_pool_exists(const std::string& name) {
+    inline bool file_pool_exists(const std::string& name) 
+    {
         return ( access( name.c_str(), F_OK ) != -1 );
     }
 #endif
-
 
 BaseNode::BaseNode() 
 {
     this->isInnerNode = false;
 }
-
 
 InnerNode::InnerNode()
 {
@@ -30,12 +38,10 @@ InnerNode::InnerNode(const InnerNode& inner)
 
 InnerNode::~InnerNode()
 {
-    for (size_t i = 0; i < this->nKey; i++)
-        delete this->p_children[i];
+    for (size_t i = 0; i < this->nKey; i++) { delete this->p_children[i]; }
 }
 
-#ifdef PMEM
-#else
+#ifndef PMEM
     LeafNode::LeafNode() 
     {
         this->isInnerNode = false;
@@ -149,22 +155,25 @@ inline uint64_t LeafNode::findKVIndex(uint64_t key)
 
     __m512i key_64B = _mm512_set1_epi8((char)key_hash);
 
-       // b. load meta into another 16B register
+    // b. load meta into another 16B register
     #ifdef PMEM
         __m512i fgpt_64B= _mm512_load_si512((__m512i*)tmp_fingerprints);
     #else
         __m512i fgpt_64B= _mm512_load_si512((__m512i*)this->fingerprints);
     #endif
 
-       // c. compare them
+    // c. compare them
     uint64_t mask = uint64_t(_mm512_cmpeq_epi8_mask(key_64B, fgpt_64B));
 
     mask &= offset;
 
     size_t counter = 0;
-    while (mask != 0) {
-        if (mask & 1 && this->bitmap.test(counter) && key == this->kv_pairs[counter].key)
+    while (mask != 0) 
+    {
+        if (mask & 1 && this->bitmap.test(counter) && key == this->kv_pairs[counter].key) 
+        {
             return counter;
+        }
         mask >>= 1;
         counter ++;
     }
@@ -189,7 +198,7 @@ void LeafNode::getStat(uint64_t key, LeafNodeStat& lstat)
 
     size_t counter = 0, cur_key;
     for (; counter < MAX_LEAF_SIZE; counter ++) {
-        if (this->bitmap.test(counter)) // if find a valid entry
+        if (this->bitmap.test(counter))  // if find a valid entry
         {
             lstat.count ++;
             cur_key = this->kv_pairs[counter].key;
@@ -564,7 +573,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         {
             updateParents(splitKey, parentNode, newLeafNode);
         }
-        else // when inner node size equal to 1 
+        else  // when inner node size equal to 1 
         {
             InnerNode* newInnerNode = new InnerNode();
             newInnerNode->nKey = 1;
@@ -598,7 +607,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
             InnerNode* newInnerNode = new InnerNode();
             insert_pos = std::lower_bound(parent->keys, parent->keys + MAX_INNER_SIZE, splitKey) - parent->keys;
 
-            if (insert_pos < mid) { // insert into parent node
+            if (insert_pos < mid) {  // insert into parent node
                 new_splitKey = parent->keys[mid];
                 parent->nKey = mid;
                 std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
@@ -606,7 +615,7 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
                 newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
                 parent->addKey(insert_pos, splitKey, child);
             }
-            else if (insert_pos > mid) { // insert into new innernode
+            else if (insert_pos > mid) {  // insert into new innernode
                 new_splitKey = parent->keys[mid];
                 parent->nKey = mid;
                 std::memmove(newInnerNode->keys, parent->keys + mid + 1, (MAX_INNER_SIZE - mid - 1)*sizeof(uint64_t));
@@ -655,12 +664,11 @@ bool FPtree::update(struct KV kv)
             if ((status = _xbegin ()) == _XBEGIN_STARTED)
             {   
                 if ((reachedLeafNode = findLeafAndPushInnerNodes(kv.key)) == nullptr) { _xend(); return false; }
-                if (reachedLeafNode->lock) { _xabort(1); continue; }
-                reachedLeafNode->_lock();
+                if (!reachedLeafNode->Lock()) { _xabort(1); continue; }
                 prevPos = reachedLeafNode->findKVIndex(kv.key);
                 if (prevPos == MAX_LEAF_SIZE) // key not found
                 {
-                    reachedLeafNode->_unlock();
+                    reachedLeafNode->Unlock();
                     _xend();
                     return false;
                 }
@@ -676,12 +684,11 @@ bool FPtree::update(struct KV kv)
                     std::this_thread::sleep_for(std::chrono::nanoseconds(1));
                     lock_update.acquire(speculative_lock);
                     if ((reachedLeafNode = findLeafAndPushInnerNodes(kv.key)) == nullptr) { lock_update.release(); return false; }
-                    if (reachedLeafNode->lock) { lock_update.release(); continue; }
-                    reachedLeafNode->_lock();
+                    if (!reachedLeafNode->Lock()) { lock_update.release(); continue; }
                     prevPos = reachedLeafNode->findKVIndex(kv.key);
                     if (prevPos == MAX_LEAF_SIZE) // key not found
                     {
-                        reachedLeafNode->_unlock();
+                        reachedLeafNode->Unlock();
                         lock_update.release();
                         return false;
                     }
@@ -693,12 +700,12 @@ bool FPtree::update(struct KV kv)
 
         splitLeafAndUpdateInnerParents(reachedLeafNode, stack_innerNodes.pop(), decision, kv, true, prevPos);
 
-        reachedLeafNode->_unlock();
+        reachedLeafNode->Unlock();
 
         #ifdef PMEM
-            if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->_unlock();
+            if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->Unlock();
         #else 
-            if (decision == Result::Split) reachedLeafNode->p_next->_unlock();
+            if (decision == Result::Split) reachedLeafNode->p_next->Unlock();
         #endif
         
         return true;
@@ -711,7 +718,7 @@ bool FPtree::update(struct KV kv)
 bool FPtree::insert(struct KV kv) 
 {
     tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
-    if (!root) // if tree is empty
+    if (!root)  // if tree is empty
     {
         lock_insert.acquire(speculative_lock, true);
         if (!root)
@@ -872,7 +879,7 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
         {
             LeafNode* leaf = (struct LeafNode *) pmemobj_direct((uLog->PCurrentLeaf).oid);
             uint64_t splitKey = findSplitKey(leaf);
-            if (leaf->isFull()) // Crashed before inverse the current leaf 
+            if (leaf->isFull())  // Crashed before inverse the current leaf 
             {
                 for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
                 {
@@ -932,9 +939,9 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
     else
         parent->removeKey(child_idx - 1, true);
 
-    while (!parent->nKey) // parent has no key, merge with sibling
+    while (!parent->nKey)  // parent has no key, merge with sibling
     {
-        if (parent == root) // entire tree stores 1 kv, convert the only leafnode into root
+        if (parent == root)  // entire tree stores 1 kv, convert the only leafnode into root
         {
             temp = reinterpret_cast<InnerNode*> (root);
             root = parent->p_children[0];
@@ -945,7 +952,7 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
         child_idx = parent->findChildIndex(key);
         left_idx = child_idx;
         if (!(child_idx != 0 && tryBorrowKey(parent, child_idx, child_idx-1)) && 
-            !(child_idx != parent->nKey && tryBorrowKey(parent, child_idx, child_idx+1))) // if cannot borrow from any siblings
+            !(child_idx != parent->nKey && tryBorrowKey(parent, child_idx, child_idx+1)))  // if cannot borrow from any siblings
         {
             if (left_idx != 0)
                 left_idx --;
@@ -996,22 +1003,22 @@ bool FPtree::deleteKey(uint64_t key)
             indexNode = INDEX_NODE;
             leaf->getStat(key, lstat);
             
-            if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
+            if (lstat.kv_idx == MAX_LEAF_SIZE)  // key not found
             {
                 decision = Result::NotFound;
                 leaf->Unlock();
             }
             else if (lstat.count > 1)   // leaf contains key and other keys
             {
-                if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key) // key appears in an inner node
+                if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key)  // key appears in an inner node
                     indexNode->keys[INDEX_KEY_IDX] = lstat.min_key;
                 decision = Result::Remove;
             }
-            else // leaf contains key only
+            else  // leaf contains key only
             {
-                if (parent) // try lock left sibling if exist, then remove leaf from parent and update inner nodes
+                if (parent)  // try lock left sibling if exist, then remove leaf from parent and update inner nodes
                 {
-                    if ((sibling = leftSibling(key)) != nullptr && !sibling->Lock()) // TODO: Test performance if find sibling with leaf
+                    if ((sibling = leftSibling(key)) != nullptr && !sibling->Lock())  // TODO: Test performance if find sibling with leaf
                     {
                         _xabort(1); sibling = nullptr; leaf->Unlock(); continue;
                     }
@@ -1034,20 +1041,20 @@ bool FPtree::deleteKey(uint64_t key)
                 indexNode = INDEX_NODE;
                 leaf->getStat(key, lstat);
                 
-                if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
+                if (lstat.kv_idx == MAX_LEAF_SIZE)  // key not found
                 {
                     decision = Result::NotFound;
                     leaf->Unlock();
                 }
                 else if (lstat.count > 1)   // leaf contains key and other keys
                 {
-                    if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key) // key appears in an inner node
+                    if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key)  // key appears in an inner node
                         indexNode->keys[INDEX_KEY_IDX] = lstat.min_key;
                     decision = Result::Remove;
                 }
-                else // leaf contains key only
+                else  // leaf contains key only
                 {
-                    if (parent) // try lock left sibling if exist, then remove leaf from parent and update inner nodes
+                    if (parent)  // try lock left sibling if exist, then remove leaf from parent and update inner nodes
                     {
                         if ((sibling = leftSibling(key)) != nullptr && !sibling->Lock()) // TODO: Test performance if find sibling with leaf
                         {
@@ -1083,7 +1090,7 @@ bool FPtree::deleteKey(uint64_t key)
             log->PCurrentLeaf = lf;
             pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
 
-            if (sibling) // set and persist sibling's p_next, then unlock sibling node
+            if (sibling)  // set and persist sibling's p_next, then unlock sibling node
             {
                 TOID(struct LeafNode) sib = pmemobj_oid(sibling);
                 
@@ -1094,7 +1101,7 @@ bool FPtree::deleteKey(uint64_t key)
                 pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
                 sibling->Unlock();
             }
-            else if (parent) // the node to delete is left most node, set and persist list head instead
+            else if (parent)  // the node to delete is left most node, set and persist list head instead
             {
                 TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
                 D_RW(ListHead)->head = D_RO(lf)->p_next; 
@@ -1177,13 +1184,13 @@ bool FPtree::tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sen
     if (sender->nKey <= 1)      // sibling has only 1 key, cannot borrow
         return false;
     InnerNode* receiver = reinterpret_cast<InnerNode*> (parent->p_children[receiver_idx]);
-    if (receiver_idx < sender_idx) // borrow from right sibling
+    if (receiver_idx < sender_idx)  // borrow from right sibling
     {
         receiver->addKey(0, parent->keys[receiver_idx], sender->p_children[0]);
         parent->keys[receiver_idx] = sender->keys[0];
         sender->removeKey(0, false);
     }
-    else // borrow from left sibling
+    else  // borrow from left sibling
     {
         receiver->addKey(0, receiver->keys[0], sender->p_children[sender->nKey], false);
         parent->keys[sender_idx] = sender->keys[sender->nKey-1];
@@ -1237,7 +1244,7 @@ void FPtree::sortKV()
 }
 
 
-void FPtree::ScanInitialize(uint64_t key)
+void FPtree::scanInitialize(uint64_t key)
 {
     if (!root)
         return;
@@ -1263,9 +1270,9 @@ void FPtree::ScanInitialize(uint64_t key)
 }
 
 
-KV FPtree::ScanNext()
+KV FPtree::scanNext()
 {
-    // assert(this->current_leaf != nullptr && "Current scan node was deleted!");
+    assert(this->current_leaf != nullptr && "Current scan node was deleted!");
     struct KV kv = this->volatile_current_kv[this->bitmap_idx++];
     if (this->bitmap_idx == this->size_volatile_kv)
     {
@@ -1284,7 +1291,7 @@ KV FPtree::ScanNext()
 }
 
 
-bool FPtree::ScanComplete()
+bool FPtree::scanComplete()
 {
     return this->current_leaf == nullptr;
 }
@@ -1319,7 +1326,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
         		#endif
         		while (!next_leaf->Lock())
         			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-        		leaf->_unlock();
+        		leaf->Unlock();
         		leaf = next_leaf;
         		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
 	        		if (leaf->bitmap.test(i))
@@ -1352,7 +1359,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
 	        		#endif
 	        		while (!next_leaf->Lock())
         				std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	        		leaf->_unlock();
+	        		leaf->Unlock();
 	        		leaf = next_leaf;
 	        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
 		        		if (leaf->bitmap.test(i))
@@ -1364,7 +1371,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
         }
     }
     if (leaf && leaf->lock == 1)
-    	leaf->_unlock();
+    	leaf->Unlock();
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
     });
