@@ -31,8 +31,6 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
-#define PMEM
-
 #if TEST_MODE == 0
     #define MAX_INNER_SIZE 128
     #define MAX_LEAF_SIZE 48
