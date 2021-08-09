@@ -323,7 +323,7 @@ struct LeafNode : BaseNode
 struct Stack
 {
  public:
-    static const uint64_t kMaxNodes = 100;
+    static const uint64_t kMaxNodes = 32;
     InnerNode* innerNodes[kMaxNodes];
     uint64_t num_nodes;
 

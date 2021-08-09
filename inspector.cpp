@@ -12,9 +12,9 @@
 #include "fptree.h"
 
 
-#define NUM_RECORDS 1000000		// Number of records to start with
+#define NUM_RECORDS 5000000		// Number of records to start with
 
-#define NUM_WORKER_THREAD 1		// Number of worker threads for insert, delete
+#define NUM_WORKER_THREAD 16		// Number of worker threads for insert, delete
 
 #define NUM_INSPECTOR_THREAD 48	// Number of threads that walks tree in parallel
 

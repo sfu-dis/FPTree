@@ -118,33 +118,14 @@ inline uint64_t LeafNode::removeKVByIdx(uint64_t pos)
 inline uint64_t LeafNode::findKVIndex(uint64_t key)
 {
     size_t key_hash = getOneByteHash(key);
-
-    #ifdef PMEM
-        __attribute__((aligned(64))) uint8_t tmp_fingerprints[MAX_LEAF_SIZE];
-        memcpy(tmp_fingerprints, this->fingerprints, sizeof(this->fingerprints));
-    #endif
-
-    __m512i key_64B = _mm512_set1_epi8((char)key_hash);
-
-    // b. load meta into another 16B register
-    #ifdef PMEM
-        __m512i fgpt_64B= _mm512_load_si512((__m512i*)tmp_fingerprints);
-    #else
-        __m512i fgpt_64B= _mm512_load_si512((__m512i*)this->fingerprints);
-    #endif
-
-    // c. compare them
-    uint64_t mask = uint64_t(_mm512_cmpeq_epi8_mask(key_64B, fgpt_64B));
-
-    mask &= offset;
-
-    size_t counter = 0;
-    while (mask != 0) 
+    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
     {
-        if (mask & 1 && this->bitmap.test(counter) && key == this->kv_pairs[counter].key) 
-            return counter;
-        mask >>= 1;
-        counter ++;
+        if (this->bitmap.test(i) == 1 &&
+            this->fingerprints[i] == key_hash &&
+            this->kv_pairs[i].key == key)
+        {
+            return i;
+        }
     }
     return MAX_LEAF_SIZE;
 }
@@ -526,15 +507,15 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
 
     if (decision == Result::Split)
     {   
-        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
-        lock_split.acquire(speculative_lock, true);
-        
         LeafNode* newLeafNode;
         #ifdef PMEM
             newLeafNode = (struct LeafNode *) pmemobj_direct((reachedLeafNode->p_next).oid);
         #else
             newLeafNode = reachedLeafNode->p_next;
         #endif
+
+        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
+        lock_split.acquire(speculative_lock, true);
 
         if (root->isInnerNode == false)
         {
@@ -548,7 +529,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         }
         if constexpr (MAX_INNER_SIZE != 1) 
         {
-            updateParents(splitKey, parentNode, newLeafNode);
+            findLeafAndPushInnerNodes(kv.key);
+            updateParents(splitKey, stack_innerNodes.pop(), newLeafNode);
         }
         else  // when inner node size equal to 1 
         {
