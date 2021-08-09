@@ -44,6 +44,8 @@ static FPTreeMemPool mp;
 
 //#define AVX512
 
+//#define LINEAR_SCAN
+
 //#define mempool
 
 // static const uint64_t kMaxEntries = 256;

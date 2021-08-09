@@ -628,12 +628,15 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             {
                 inners[i] = cur;
                 nKey = cur->nKey;
+            #ifdef LINEAR_SCAN
                 for (idx = 0; idx < nKey; idx++)
                     if (cur->keys[idx] > kv.key)
                         break;
-                // idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
-                // if (idx < cur->nKey && cur->keys[idx] == kv.key)
-                //     idx ++;
+            #else
+                idx = std::lower_bound(cur->keys, cur->keys + nKey, kv.key) - cur->keys;
+                if (idx < nKey && cur->keys[idx] == kv.key)
+                    idx ++;
+            #endif
                 ppos[i++] = idx;
                 cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
             }
@@ -873,12 +876,15 @@ bool FPtree::insert(struct KV kv)
             while (cursor->isInnerNode) 
             {
                 nKey = cursor->nKey;
-                // idx = std::lower_bound(cursor->keys, cursor->keys + cursor->nKey, kv.key) - cursor->keys;
+            #ifdef LINEAR_SCAN
                 for (idx = 0; idx < nKey; idx++)
                     if (cursor->keys[idx] > kv.key)
                         break;
-                // if (idx < cursor->nKey && cursor->keys[idx] == kv.key)
-                //     idx ++;
+            #else
+                idx = std::lower_bound(cursor->keys, cursor->keys + nKey, kv.key) - cursor->keys;
+                if (idx < nKey && cursor->keys[idx] == kv.key)
+                    idx ++;
+            #endif
                 cursor = reinterpret_cast<InnerNode*> (cursor->p_children[idx]);
             }
             reachedLeafNode = reinterpret_cast<LeafNode*> (cursor);
