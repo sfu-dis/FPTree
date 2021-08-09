@@ -629,7 +629,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 inners[i] = cur;
                 nKey = cur->nKey;
                 for (idx = 0; idx < nKey; idx++)
-                    if (cursor->keys[idx] > kv.key)
+                    if (cur->keys[idx] > kv.key)
                         break;
                 // idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
                 // if (idx < cur->nKey && cur->keys[idx] == kv.key)
