@@ -22,6 +22,27 @@ mkdir build & cd build
 cmake -DPMEM_BACKEND=DRAM ..
 ```
 
+All executables are in `build/src` folder
+
+#### Interative executable
+Above command help you build `fptree` executable
+
+It will pre-load 100 keys and then let you play with
+
+```Enter the key to insert, delete or update (-1):```
+
+Enter `exit` to leave the program and then it will perform scan operation from the header leaf node
+
+#### Inspector executable
+```bash
+mkdir build & cd build
+cmake -DPMEM_BACKEND=${BACKEND} -DBUILD_INSPECTOR=1 ..
+```
+
+Check the correctness of single/multi-threaded insert, delete operations for both leaf nodes and inner nodes 
+
+If you want to check performance of this implementation, please see PiBench instruction below 
+
 #### Other build options
 `-DBUILD_INSPECTOR=1` to build inspector executable which can check the correctness of single/multi-threaded operations (insert, delete..)
 
@@ -39,5 +60,5 @@ Checkout PiBench here: https://github.com/wangtzh/pibench
 
 ```bash
 mkdir Release & cd Release
-cmake -DCMAKE_BUILD_TYPE=Release -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 DNDEBUG=1 ..
+cmake -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 DNDEBUG=1 ..
 ```
