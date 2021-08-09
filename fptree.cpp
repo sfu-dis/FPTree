@@ -303,7 +303,7 @@ FPtree::FPtree()
         }
     #else
         bitmap_idx = MAX_LEAF_SIZE;
-        mp.init(1, (size_t)(1024ul * 1024ul * 1ul) * 1000ul, 4096); // 1GB
+        mp.init(1, (size_t)(1024ul * 1024ul * 1ul) * 1000ul, 4096); // 10GB
     #endif
 }
 
@@ -605,7 +605,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
         thread_local uint64_t mid = floor(MAX_INNER_SIZE / 2);
         thread_local InnerNode* inners[32];
         thread_local short ppos[32];
-        uint64_t new_splitKey, insert_pos;
+        uint64_t new_splitKey, insert_pos, nKey;
         InnerNode* cur, *parent, *newInnerNode;
         BaseNode* child;
         short i = 0, idx;
@@ -627,9 +627,13 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             while(cur->isInnerNode)
             {
                 inners[i] = cur;
-                idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
-                if (idx < cur->nKey && cur->keys[idx] == kv.key)
-                    idx ++;
+                nKey = cur->nKey;
+                for (idx = 0; idx < nKey; idx++)
+                    if (cursor->keys[idx] > kv.key)
+                        break;
+                // idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
+                // if (idx < cur->nKey && cur->keys[idx] == kv.key)
+                //     idx ++;
                 ppos[i++] = idx;
                 cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
             }
@@ -853,6 +857,7 @@ bool FPtree::insert(struct KV kv)
     Result decision = Result::Abort;
     InnerNode* cursor;
     LeafNode* reachedLeafNode;
+    uint64_t nKey;
     int idx;
     /*---------------- First Critical Section -----------------*/
     {
@@ -867,9 +872,13 @@ bool FPtree::insert(struct KV kv)
             cursor = reinterpret_cast<InnerNode*> (root);
             while (cursor->isInnerNode) 
             {
-                idx = std::lower_bound(cursor->keys, cursor->keys + cursor->nKey, kv.key) - cursor->keys;
-                if (idx < cursor->nKey && cursor->keys[idx] == kv.key)
-                    idx ++;
+                nKey = cursor->nKey;
+                // idx = std::lower_bound(cursor->keys, cursor->keys + cursor->nKey, kv.key) - cursor->keys;
+                for (idx = 0; idx < nKey; idx++)
+                    if (cursor->keys[idx] > kv.key)
+                        break;
+                // if (idx < cursor->nKey && cursor->keys[idx] == kv.key)
+                //     idx ++;
                 cursor = reinterpret_cast<InnerNode*> (cursor->p_children[idx]);
             }
             reachedLeafNode = reinterpret_cast<LeafNode*> (cursor);
