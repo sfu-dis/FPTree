@@ -160,6 +160,7 @@ uint64_t LeafNode::findKVIndex(uint64_t key)
 {
     size_t key_hash = getOneByteHash(key);
 
+#ifdef AVX512
     #ifdef PMEM
         __attribute__((aligned(64))) uint8_t tmp_fingerprints[MAX_LEAF_SIZE];
         memcpy(tmp_fingerprints, this->fingerprints, sizeof(this->fingerprints));
@@ -186,6 +187,11 @@ uint64_t LeafNode::findKVIndex(uint64_t key)
         mask >>= 1;
         counter ++;
     }
+#else
+    for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++)
+        if (this->bitmap.test(i) && this->fingerprints[i] == key_hash && key == this->kv_pairs[i].key)
+            return i;
+#endif
     return MAX_LEAF_SIZE;
 }
 
@@ -595,113 +601,23 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     #else
         newLeafNode = reachedLeafNode->p_next;
     #endif
-
-    #ifdef TBB_2
         thread_local tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
-    #endif
-
-        uint64_t mid = floor(MAX_INNER_SIZE / 2), new_splitKey, insert_pos;
-        InnerNode* cur, *parent, *newInnerNode;
-        BaseNode* child;
+        thread_local uint64_t mid = floor(MAX_INNER_SIZE / 2);
         thread_local InnerNode* inners[32];
         thread_local short ppos[32];
-        short i = 0;
-        int status, threshold = THRESHOLD;
+        uint64_t new_splitKey, insert_pos;
+        InnerNode* cur, *parent, *newInnerNode;
+        BaseNode* child;
+        short i = 0, idx;
 
-    #ifdef TSX_2
-    TSX_BEGIN: 
-        if (threshold-- == 0)
-        {
-            printf("Cannot finish second critical section in %d tries!\n", THRESHOLD);
-            // threshold = THRESHOLD;
-            // printTSXInfo();
-            return;
-        #ifdef TBB_2
-            goto TBB_BEGIN;
-        #endif
-        }
-        if ((status = _xbegin()) != _XBEGIN_STARTED)
-        {
-            // if (status & _XABORT_CONFLICT) conflict_counter++;
-            // if (status & _XABORT_CAPACITY) capacity_counter++;
-            // if (status & _XABORT_DEBUG) debug_counter++;
-            // if ((status & _XABORT_RETRY) == 0) failed_counter++;
-            // if (status & _XABORT_EXPLICIT) explicit_counter++;
-            // if (status & _XABORT_NESTED) nester_counter++;
-            // if (status == 0) zero_counter++;
-            goto TSX_BEGIN;
-        }
-        if (!root->isInnerNode) // splitting when tree has root only
-        {
-            cur = (InnerNode*)mp.alloc(sizeof(InnerNode));
-            cur->init(splitKey, reachedLeafNode, newLeafNode);
-            root = cur;
-        }
-        else // need to retraverse & update parent
-        {
-            cur = reinterpret_cast<InnerNode*> (root);
-            while(cur->isInnerNode)
-            {
-                inners[i] = cur;
-                ppos[i] = cur->findChildIndex(kv.key);
-                cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
-            }
-            parent = inners[--i];
-            child = newLeafNode;
-            while (true)
-            {
-                insert_pos = ppos[i--];
-                if (parent->nKey < MAX_INNER_SIZE)
-                {
-                    parent->addKey(insert_pos, splitKey, child);
-                    break;
-                }
-                else 
-                {
-                    newInnerNode = (InnerNode*)mp.alloc(sizeof(InnerNode));// newInnerNodes[k++]; //new InnerNode(); 
-                    parent->nKey = mid;
-                    if (insert_pos != mid)
-                    {
-                        new_splitKey = parent->keys[mid];
-                        std::copy(parent->keys + mid + 1, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        std::copy(parent->p_children + mid + 1, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        newInnerNode->nKey = MAX_INNER_SIZE - mid - 1;
-                        if (insert_pos < mid)
-                            parent->addKey(insert_pos, splitKey, child);
-                        else
-                            newInnerNode->addKey(insert_pos - mid - 1, splitKey, child);
-                    }
-                    else 
-                    {
-                        new_splitKey = splitKey;
-                        std::copy(parent->keys + mid, parent->keys + MAX_INNER_SIZE, newInnerNode->keys);
-                        std::copy(parent->p_children + mid, parent->p_children + MAX_INNER_SIZE + 1, newInnerNode->p_children);
-                        newInnerNode->p_children[0] = child;
-                        newInnerNode->nKey = MAX_INNER_SIZE - mid;
-                    }
-                    splitKey = new_splitKey;
-                    if (parent == root)
-                    {
-                        cur = (InnerNode*)mp.alloc(sizeof(InnerNode));
-                        cur->init(splitKey, parent, newInnerNode);
-                        root = cur;
-                        break;
-                    }
-                    parent = inners[i];
-                    child = newInnerNode;
-                }
-            }
-        }
-        _xend();
-        goto END;
-    #endif
-
-    #ifdef TBB_2
-    TBB_BEGIN:
         lock_split.acquire(speculative_lock);
-        if (!root->isInnerNode) // splitting when tree has root only
+        if (!root->isInnerNode) // splitting when tree has only root 
         {
+        #ifdef mempool
             cur = (InnerNode*)mp.alloc(sizeof(InnerNode));
+        #else
+            cur = new InnerNode();
+        #endif
             cur->init(splitKey, reachedLeafNode, newLeafNode);
             root = cur;
         }
@@ -711,8 +627,11 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             while(cur->isInnerNode)
             {
                 inners[i] = cur;
-                ppos[i] = cur->findChildIndex(kv.key);
-                cur = reinterpret_cast<InnerNode*> (cur->p_children[ppos[i++]]);
+                idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
+                if (idx < cur->nKey && cur->keys[idx] == kv.key)
+                    idx ++;
+                ppos[i++] = idx;
+                cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
             }
             parent = inners[--i];
             child = newLeafNode;
@@ -726,7 +645,11 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                 }
                 else 
                 {
+                #ifdef mempool
                     newInnerNode = (InnerNode*)mp.alloc(sizeof(InnerNode));// newInnerNodes[k++]; //new InnerNode(); 
+                #else
+                    newInnerNode = new InnerNode();
+                #endif
                     parent->nKey = mid;
                     if (insert_pos != mid)
                     {
@@ -750,7 +673,11 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
                     splitKey = new_splitKey;
                     if (parent == root)
                     {
+                    #ifdef mempool
                         cur = (InnerNode*)mp.alloc(sizeof(InnerNode));
+                    #else
+                        cur = new InnerNode();
+                    #endif
                         cur->init(splitKey, parent, newInnerNode);
                         root = cur;
                         break;
@@ -761,8 +688,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
             }
         }
         lock_split.release();
-    #endif
-    END:
         newLeafNode->Unlock();
     }
     /*---------------- End of Second Critical Section -----------------*/
@@ -926,57 +851,11 @@ bool FPtree::insert(struct KV kv)
     }
 
     Result decision = Result::Abort;
-    LeafNode* reachedLeafNode;
-    int idx, threshold = THRESHOLD, status;
     InnerNode* cursor;
+    LeafNode* reachedLeafNode;
+    int idx;
     /*---------------- First Critical Section -----------------*/
     {
-    #ifdef TSX_1
-    TSX_BEGIN: 
-        if (threshold-- == 0)
-        {
-            printf("Cannot finish first critical section in %d tries for Insert - %d!\n", THRESHOLD, count);
-            printTSXInfo();
-            return false;
-        #ifdef TBB_1
-            threshold = 1;
-            goto TBB_BEGIN;
-        #endif
-        }
-        if ((status = _xbegin()) != _XBEGIN_STARTED)
-        {
-            if (status & _XABORT_CONFLICT) conflict_counter++;
-            if (status & _XABORT_CAPACITY) capacity_counter++;
-            if (status & _XABORT_DEBUG) debug_counter++;
-            if ((status & _XABORT_RETRY) == 0) failed_counter++;
-            if (status & _XABORT_EXPLICIT) explicit_counter++;
-            if (status & _XABORT_NESTED) nester_counter++;
-            if (status == 0) zero_counter++;
-            goto TSX_BEGIN;
-        }
-        if (!root->isInnerNode) 
-            reachedLeafNode = reinterpret_cast<LeafNode*> (root);
-        else
-        {
-            cursor = reinterpret_cast<InnerNode*> (root);
-            while (cursor->isInnerNode) 
-            {
-                idx = std::lower_bound(cursor->keys, cursor->keys + cursor->nKey, kv.key) - cursor->keys;
-                if (idx < cursor->nKey && cursor->keys[idx] == kv.key)
-                    idx ++;
-                cursor = reinterpret_cast<InnerNode*> (cursor->p_children[idx]);
-            }
-            reachedLeafNode = reinterpret_cast<LeafNode*> (cursor);
-        }
-        if (!reachedLeafNode->Lock()) { _xabort(4); goto TSX_BEGIN; }
-        idx = reachedLeafNode->findKVIndex(kv.key);
-        if (idx != MAX_LEAF_SIZE)
-            reachedLeafNode->Unlock();
-        else
-            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-        _xend();
-        goto HTM_END;
-    #endif
     #ifdef TBB_1
     TBB_BEGIN:
         // insert_abort_counter++;
@@ -999,11 +878,7 @@ bool FPtree::insert(struct KV kv)
         if (!reachedLeafNode->Lock()) 
         { 
             lock_insert.release(); 
-        #ifdef TSX_1
-            goto TSX_BEGIN;
-        #else
             goto TBB_BEGIN;
-        #endif
         }
         idx = reachedLeafNode->findKVIndex(kv.key);
         if (idx != MAX_LEAF_SIZE)
@@ -1014,7 +889,6 @@ bool FPtree::insert(struct KV kv)
     #endif
     }
     /*---------------- End of First Critical Section -----------------*/
-    HTM_END:
 
     if (decision == Result::Abort)  // kv already exists
         return false;
