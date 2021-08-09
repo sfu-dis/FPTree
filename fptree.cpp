@@ -344,9 +344,9 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
-	if (!root)
-		return nullptr;
-	if (!root->isInnerNode) 
+    if (!root)
+        return nullptr;
+    if (!root->isInnerNode) 
         return reinterpret_cast<LeafNode*> (root);
     uint64_t child_idx;
     InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
@@ -710,7 +710,7 @@ bool FPtree::insert(struct KV kv)
     while (decision == Result::Abort)
     {
         lock_insert.acquire(speculative_lock, true);
-        reachedLeafNode = findLeafAndPushInnerNodes(kv.key);
+        reachedLeafNode = findLeaf(kv.key);
         if (!reachedLeafNode->Lock()) { lock_insert.release(); continue; }
         idx = reachedLeafNode->findKVIndex(kv.key);
         if (idx != MAX_LEAF_SIZE)
@@ -723,7 +723,7 @@ bool FPtree::insert(struct KV kv)
         lock_insert.release();
     }
 
-    splitLeafAndUpdateInnerParents(reachedLeafNode, stack_innerNodes.pop(), decision, kv);
+    splitLeafAndUpdateInnerParents(reachedLeafNode, nullptr, decision, kv);
 
     #ifdef PMEM
         if (decision == Result::Split) D_RW(reachedLeafNode->p_next)->Unlock();
