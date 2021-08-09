@@ -856,7 +856,6 @@ bool FPtree::insert(struct KV kv)
     int idx;
     /*---------------- First Critical Section -----------------*/
     {
-    #ifdef TBB_1
     TBB_BEGIN:
         // insert_abort_counter++;
         // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
@@ -886,7 +885,6 @@ bool FPtree::insert(struct KV kv)
         else
             decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
         lock_insert.release();
-    #endif
     }
     /*---------------- End of First Critical Section -----------------*/
 
