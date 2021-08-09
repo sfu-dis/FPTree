@@ -31,7 +31,7 @@ It will pre-load 100 keys and then let you play with
 
 ```Enter the key to insert, delete or update (-1):```
 
-Enter `exit` to leave the program and then it will perform scan operation from the header leaf node
+Enter `exit` to leave the program and then it will perform the scan operation from the header leaf node
 
 #### Inspector executable
 ```bash
@@ -39,7 +39,7 @@ mkdir build & cd build
 cmake -DPMEM_BACKEND=${BACKEND} -DBUILD_INSPECTOR=1 ..
 ```
 
-Check the correctness of single/multi-threaded insert, delete operations for both leaf nodes and inner nodes 
+Run `inspector` to check the correctness of single/multi-threaded insert, delete operations for both leaf nodes and inner nodes 
 
 If you want to check performance of this implementation, please see PiBench instruction below 
 
@@ -60,5 +60,5 @@ Checkout PiBench here: https://github.com/wangtzh/pibench
 
 ```bash
 mkdir Release & cd Release
-cmake -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 DNDEBUG=1 ..
+cmake -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 -DNDEBUG=1 ..
 ```
