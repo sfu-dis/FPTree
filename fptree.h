@@ -23,8 +23,8 @@
 #include <random>
 #include <climits>
 #include <functional>
-#include <tbb/spin_mutex.h>
-#include <tbb/spin_rw_mutex.h>
+#include "oneapi/tbb/spin_mutex.h"
+#include "oneapi/tbb/spin_rw_mutex.h"
 #include <immintrin.h>
 #include <thread>
 #include <boost/lockfree/queue.hpp>
