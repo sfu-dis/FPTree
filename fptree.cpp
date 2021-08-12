@@ -505,33 +505,15 @@ uint64_t FPtree::find(uint64_t key)
 {
     LeafNode* pLeafNode;
     volatile uint64_t idx;
-    volatile int retriesLeft = 5;
-    volatile unsigned status;
+    tbb::speculative_spin_rw_mutex::scoped_lock lock_find;
     while (true)
     {
-        if ((status = _xbegin ()) == _XBEGIN_STARTED)
-        {
-            if ((pLeafNode = findLeaf(key)) == nullptr) { _xend(); return 0; }
-            if (pLeafNode->lock) { _xabort(1); continue; }
-            idx = pLeafNode->findKVIndex(key);
-            _xend();
-            return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-        }
-        else 
-        {
-            retriesLeft--;
-            if (retriesLeft < 0) 
-            {
-                read_abort_counter++;
-                tbb::speculative_spin_rw_mutex::scoped_lock lock_find;
-                lock_find.acquire(speculative_lock, false);
-                if ((pLeafNode = findLeaf(key)) == nullptr) { lock_find.release(); return 0; }
-                if (pLeafNode->lock) { lock_find.release(); continue; }
-                idx = pLeafNode->findKVIndex(key);
-                lock_find.release();
-                return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
-            }
-        }
+        lock_find.acquire(speculative_lock, false);
+        if ((pLeafNode = findLeaf(key)) == nullptr) { lock_find.release(); break; }
+        if (pLeafNode->lock) { lock_find.release(); continue; }
+        idx = pLeafNode->findKVIndex(key);
+        lock_find.release();
+        return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
     }
     return 0;
 }
