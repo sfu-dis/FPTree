@@ -1124,35 +1124,35 @@ bool FPtree::deleteKey(uint64_t key)
         {
             inners[i] = cur;
             nKey = cur->nKey;
-            // idx = std::lower_bound(cur->keys, cur->keys + nKey, key) - cur->keys;
+            idx = std::lower_bound(cur->keys, cur->keys + nKey, key) - cur->keys;
 
             // for (idx = 0; idx < nKey; idx++)
             //     if (cur->keys[idx] >= key)
             //         break;
 
             // binary search to narrow down to at most 8 entries
-            b = 0;
-            t = nKey - 1;
-            while (b + 7 <= t)
-            {
-                idx = (b + t) >> 1;
-                if (key > cur->keys[idx])
-                    b = idx + 1;
-                else if (key < cur->keys[idx])
-                    t = idx - 1;
-                else
-                    goto inner_done;
-            }
+        //     b = 0;
+        //     t = nKey - 1;
+        //     while (b + 7 <= t)
+        //     {
+        //         idx = (b + t) >> 1;
+        //         if (key > cur->keys[idx])
+        //             b = idx + 1;
+        //         else if (key < cur->keys[idx])
+        //             t = idx - 1;
+        //         else
+        //             goto inner_done;
+        //     }
 
-            // sequential search (which is slightly faster now)
-            for (; b <= t; b++)
-                if (cur->keys[b] >= key)
-                {
-                    idx = b;
-                    break;
-                }
+        //     // sequential search (which is slightly faster now)
+        //     for (; b <= t; b++)
+        //         if (cur->keys[b] >= key)
+        //         {
+        //             idx = b;
+        //             break;
+        //         }
 
-        inner_done:    
+        // inner_done:    
 
             if (idx < nKey && cur->keys[idx] == key) // just found index node
             {
