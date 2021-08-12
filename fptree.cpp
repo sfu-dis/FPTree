@@ -1043,8 +1043,10 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     }
 #endif
 
-void FPtree::removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], short i, short indexNode_level, uint64_t key)
+void FPtree::removeKeyAndMergeInnerNodes(short i, short indexNode_level, uint64_t key)
 {
+    thread_local InnerNode* inners[32];
+    thread_local short ppos[32];
     InnerNode* temp, *left, *right, *parent = inners[i], *indexNode = inners[indexNode_level];
     uint64_t left_idx, new_key, child_idx = ppos[i];
 
@@ -1103,8 +1105,8 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], 
 bool FPtree::deleteKey(uint64_t key)
 {
     LeafNode* leaf, *sibling;
-    InnerNode* indexNode, *parent, *cur; 
-    uint64_t child_idx, nKey;
+    InnerNode *parent, *cur; 
+    uint64_t nKey;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     Result decision = Result::Abort;
     LeafNodeStat lstat;
@@ -1167,7 +1169,7 @@ bool FPtree::deleteKey(uint64_t key)
                         leaf->Unlock(); lock_delete.release(); continue;
                     }
                 }
-                removeKeyAndMergeInnerNodes(inners, ppos, i, indexNode_level, key);
+                removeKeyAndMergeInnerNodes(i, indexNode_level, key);
             }
             decision = Result::Delete;
         }
