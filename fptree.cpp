@@ -1043,10 +1043,8 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     }
 #endif
 
-void FPtree::removeKeyAndMergeInnerNodes(short i, short indexNode_level, uint64_t key)
+void FPtree::removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], short i, short indexNode_level, uint64_t key)
 {
-    thread_local InnerNode* inners[32];
-    thread_local short ppos[32];
     InnerNode* temp, *left, *right, *parent = inners[i], *indexNode = inners[indexNode_level];
     uint64_t left_idx, new_key, child_idx = ppos[i];
 
@@ -1169,7 +1167,7 @@ bool FPtree::deleteKey(uint64_t key)
                         leaf->Unlock(); lock_delete.release(); continue;
                     }
                 }
-                removeKeyAndMergeInnerNodes(i, indexNode_level, key);
+                removeKeyAndMergeInnerNodes(inners, ppos, i, indexNode_level, key);
             }
             decision = Result::Delete;
         }
