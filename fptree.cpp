@@ -1043,7 +1043,7 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     }
 #endif
 
-void FPtree::removeKeyAndMergeInnerNodes(InnerNode* & inners[32], short & ppos[32], short i, short indexNode_level, uint64_t key)
+void FPtree::removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], short i, short indexNode_level, uint64_t key)
 {
     InnerNode* temp, *left, *right, *parent = inners[i], *indexNode = inners[indexNode_level];
     uint64_t left_idx, new_key, child_idx = ppos[i];
