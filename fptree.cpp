@@ -1127,7 +1127,7 @@ bool FPtree::deleteKey(uint64_t key)
             // idx = std::lower_bound(cur->keys, cur->keys + nKey, key) - cur->keys;
 
             for (idx = 0; idx < nKey; idx++)
-                if (cursor->keys[idx] >= kv.key)
+                if (cur->keys[idx] >= key)
                     break;
 
             // // binary search to narrow down to at most 8 entries
