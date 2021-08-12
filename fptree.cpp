@@ -1043,10 +1043,10 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     }
 #endif
 
-void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key)
+void FPtree::removeKeyAndMergeInnerNodes(InnerNode* & inners[32], short & ppos[32], short i, short indexNode_level, uint64_t key)
 {
-    InnerNode* temp, *left, *right;
-    uint64_t left_idx, new_key;
+    InnerNode* temp, *left, *right, *parent = inners[i], *indexNode = inners[indexNode_level];
+    uint64_t left_idx, new_key, child_idx = ppos[i];
 
     if (child_idx == 0)
     {
@@ -1065,8 +1065,8 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
             delete temp;
             break;         
         }
-        parent = stack_innerNodes.pop();
-        child_idx = parent->findChildIndex(key);
+        parent = inners[--i];
+        child_idx = ppos[i];
         left_idx = child_idx;
         if (!(child_idx != 0 && tryBorrowKey(parent, child_idx, child_idx-1)) && 
             !(child_idx != parent->nKey && tryBorrowKey(parent, child_idx, child_idx+1))) // if cannot borrow from any siblings
@@ -1102,22 +1102,41 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent
 
 bool FPtree::deleteKey(uint64_t key)
 {
-    LeafNode* leaf, *sibling = nullptr;
-    InnerNode* indexNode, *parent; 
-    uint64_t child_idx;
-    int status, retriesLeft = 15;
+    LeafNode* leaf, *sibling;
+    InnerNode* indexNode, *parent, *cur; 
+    uint64_t child_idx, nKey;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     Result decision = Result::Abort;
     LeafNodeStat lstat;
+    thread_local InnerNode* inners[32];
+    thread_local short ppos[32];
+    short i, idx, indexNode_level;
     while (decision == Result::Abort) 
     {
+        i = 0; indexNode_level = -1;
+        sibling = nullptr;
         /*---------------- Critical Section -----------------*/
         lock_delete.acquire(speculative_lock, true);
-        leaf = findLeafAndPushInnerNodes(key);
+
+        if (!root) { lock_delete.release(); return false;} // empty tree
+        cur = reinterpret_cast<InnerNode*> (root);
+        while (cur->isInnerNode)
+        {
+            inners[i] = cur;
+            nKey = cur->nKey;
+            idx = std::lower_bound(cur->keys, cur->keys + nKey, key) - cur->keys;
+            if (idx < nKey && cur->keys[idx] == key) // just found index node
+            {
+                indexNode_level = i;
+                idx ++;
+            }
+            ppos[i++] = idx;
+            cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
+        }
+        parent = inners[--i];
+        leaf = reinterpret_cast<LeafNode*> (cur);
+
         if (!leaf->Lock()) { lock_delete.release(); continue; }
-        parent = stack_innerNodes.pop();
-        child_idx = CHILD_IDX;
-        indexNode = INDEX_NODE;
         leaf->getStat(key, lstat);
         if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
         {
@@ -1126,19 +1145,29 @@ bool FPtree::deleteKey(uint64_t key)
         }
         else if (lstat.count > 1)   // leaf contains key and other keys
         {
-            if (indexNode && indexNode->keys[INDEX_KEY_IDX] == key) // key appears in an inner node
-                indexNode->keys[INDEX_KEY_IDX] = lstat.min_key;
+            if (indexNode_level >= 0) // key appears in an inner node, need to replace
+                inners[indexNode_level]->keys[ppos[indexNode_level] - 1] = lstat.min_key;
             decision = Result::Remove;
         }
         else // leaf contains key only
         {
             if (parent) // try lock left sibling if exist, then remove leaf from parent and update inner nodes
             {
-                if ((sibling = leftSibling(key)) != nullptr && !sibling->Lock()) // TODO: Test performance if find sibling with leaf
+                idx = i;
+                while (idx >= 0 && ppos[idx] == 0)
+                    idx --;
+                if (idx >= 0)   // left sibling exists, find and try lock it
                 {
-                    lock_delete.release(); sibling = nullptr; leaf->Unlock(); continue;
+                    cur = reinterpret_cast<InnerNode*> (inners[idx]->p_children[ppos[idx] - 1]);
+                    while (cur->isInnerNode)
+                        cur = reinterpret_cast<InnerNode*> (cur->p_children[cur->nKey]);
+                    sibling = reinterpret_cast<LeafNode*> (cur);
+                    if (!sibling->Lock())
+                    {
+                        leaf->Unlock(); lock_delete.release(); continue;
+                    }
                 }
-                removeKeyAndMergeInnerNodes(indexNode, parent, child_idx, key);
+                removeKeyAndMergeInnerNodes(inners, ppos, i, indexNode_level, key);
             }
             decision = Result::Delete;
         }

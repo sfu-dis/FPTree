@@ -293,8 +293,12 @@ public:
 
     bool Lock()
     {
-        uint64_t expected = 0;
-        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+        // uint64_t expected = 0;
+        // return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+        if (lock)
+            return false;
+        lock = 1;
+        return true;
     }
     void Unlock()
     {
@@ -476,7 +480,7 @@ private:
                                             Result decision, struct KV kv, bool updateFunc, uint64_t prevPos);
 
     // merge parent with sibling, may incur further merges. Remove key from indexNode after
-    void removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key);
+    void removeKeyAndMergeInnerNodes(InnerNode* & inners[32], short & ppos[32], short i, short indexNode_level, uint64_t key);
 
     // try transfer a key from sender to receiver, sender and receiver should be immediate siblings 
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0
