@@ -1110,7 +1110,7 @@ bool FPtree::deleteKey(uint64_t key)
     LeafNodeStat lstat;
     thread_local InnerNode* inners[32];
     thread_local short ppos[32];
-    short i, idx, indexNode_level;
+    short i, idx, indexNode_level, b, t;
     while (decision == Result::Abort) 
     {
         i = 0; indexNode_level = -1;
@@ -1126,37 +1126,33 @@ bool FPtree::deleteKey(uint64_t key)
             nKey = cur->nKey;
             // idx = std::lower_bound(cur->keys, cur->keys + nKey, key) - cur->keys;
 
-            for (idx = 0; idx < nKey; idx++)
-                if (cur->keys[idx] >= key)
-                    break;
-
-            // // binary search to narrow down to at most 8 entries
-            // b = 1;
-            // t = nKey;
-            // while (b + 7 <= t)
-            // {
-            //     m = (b + t) >> 1;
-            //     if (key > cur->keys[m])
-            //         b = m + 1;
-            //     else if (key < cur->keys[m])
-            //         t = m - 1;
-            //     else
-            //     {
-            //         p = p->ch(m);
-            //         ppos[i] = m;
-            //         goto inner_done;
-            //     }
-            // }
-
-            // // sequential search (which is slightly faster now)
-            // for (; b <= t; b++)
-            //     if (key < p->k(b))
+            // for (idx = 0; idx < nKey; idx++)
+            //     if (cur->keys[idx] >= key)
             //         break;
-            // p = p->ch(b - 1);
-            // ppos[i] = b - 1;
 
+            // binary search to narrow down to at most 8 entries
+            b = 0;
+            t = nKey - 1;
+            while (b + 7 <= t)
+            {
+                idx = (b + t) >> 1;
+                if (key > cur->keys[idx])
+                    b = idx + 1;
+                else if (key < cur->keys[idx])
+                    t = idx - 1;
+                else
+                    goto inner_done;
+            }
 
+            // sequential search (which is slightly faster now)
+            for (; b <= t; b++)
+                if (cur->keys[b] >= key)
+                {
+                    idx = b;
+                    break;
+                }
 
+        inner_done:    
 
             if (idx < nKey && cur->keys[idx] == key) // just found index node
             {
