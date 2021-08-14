@@ -402,10 +402,12 @@ public:
     }
 };
 
-static thread_local Stack stack_innerNodes;
-static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
-static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
-static thread_local uint64_t INDEX_KEY_IDX; // child index of INDEX_NODE
+// static thread_local Stack stack_innerNodes;
+// static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
+// static thread_local InnerNode* INDEX_NODE; // pointer to inner node that contains key
+// static thread_local uint64_t INDEX_KEY_IDX; // child index of INDEX_NODE
+thread_local InnerNode* inners[32];
+thread_local short ppos[32];
 
 struct FPtree 
 {
@@ -480,7 +482,7 @@ private:
                                             Result decision, struct KV kv, bool updateFunc, uint64_t prevPos);
 
     // merge parent with sibling, may incur further merges. Remove key from indexNode after
-    void removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], short i, short indexNode_level, uint64_t key);
+    void removeLeafAndMergeInnerNodes(short i, short indexNode_level);
 
     // try transfer a key from sender to receiver, sender and receiver should be immediate siblings 
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0

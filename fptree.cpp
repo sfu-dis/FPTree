@@ -1043,15 +1043,17 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     }
 #endif
 
-void FPtree::removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], short i, short indexNode_level, uint64_t key)
+void FPtree::removeLeafAndMergeInnerNodes(short i, short indexNode_level)
 {
-    InnerNode* temp, *left, *right, *parent = inners[i], *indexNode = inners[indexNode_level];
-    uint64_t left_idx, new_key, child_idx = ppos[i];
+    InnerNode* temp, *left, *right, *parent = inners[i];
+    uint64_t left_idx, new_key = 0, child_idx = ppos[i];
 
     if (child_idx == 0)
     {
         new_key = parent->keys[0];
         parent->removeKey(child_idx, false);
+        if (indexNode_level >= 0 && inners[indexNode_level] != parent)
+        	inners[indexNode_level]->keys[ppos[indexNode_level] - 1] = new_key;
     }
     else
         parent->removeKey(child_idx - 1, true);
@@ -1080,41 +1082,32 @@ void FPtree::removeKeyAndMergeInnerNodes(InnerNode* inners[32], short ppos[32], 
             {
                 right->addKey(0, parent->keys[left_idx], left->p_children[0], false);
                 delete left;
-                if (left == indexNode)
-                    indexNode = nullptr;
                 parent->removeKey(left_idx, false);
             }
             else
             {
                 left->addKey(left->nKey, parent->keys[left_idx], right->p_children[0]);
                 delete right;
-                if (right == indexNode)
-                    indexNode = nullptr;
                 parent->removeKey(left_idx);
             }
         }
         else
             break;
     }
-    if (indexNode && indexNode != parent && indexNode->keys[INDEX_KEY_IDX] == key)
-            indexNode->keys[INDEX_KEY_IDX] = new_key;
 }
 
 bool FPtree::deleteKey(uint64_t key)
 {
     LeafNode* leaf, *sibling;
     InnerNode *parent, *cur; 
-    uint64_t nKey;
     tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
     Result decision = Result::Abort;
     LeafNodeStat lstat;
-    thread_local InnerNode* inners[32];
-    thread_local short ppos[32];
-    short i, idx, indexNode_level, b, t;
+    short i, idx, indexNode_level, sib_level;
     while (decision == Result::Abort) 
     {
-        i = 0; indexNode_level = -1;
-        sibling = nullptr;
+        i = 0; indexNode_level = -1, sib_level = -1;
+        sibling = nullptr; 
         /*---------------- Critical Section -----------------*/
         lock_delete.acquire(speculative_lock, true);
 
@@ -1123,42 +1116,14 @@ bool FPtree::deleteKey(uint64_t key)
         while (cur->isInnerNode)
         {
             inners[i] = cur;
-            nKey = cur->nKey;
-            idx = std::lower_bound(cur->keys, cur->keys + nKey, key) - cur->keys;
-
-            // for (idx = 0; idx < nKey; idx++)
-            //     if (cur->keys[idx] >= key)
-            //         break;
-
-            // binary search to narrow down to at most 8 entries
-        //     b = 0;
-        //     t = nKey - 1;
-        //     while (b + 7 <= t)
-        //     {
-        //         idx = (b + t) >> 1;
-        //         if (key > cur->keys[idx])
-        //             b = idx + 1;
-        //         else if (key < cur->keys[idx])
-        //             t = idx - 1;
-        //         else
-        //             goto inner_done;
-        //     }
-
-        //     // sequential search (which is slightly faster now)
-        //     for (; b <= t; b++)
-        //         if (cur->keys[b] >= key)
-        //         {
-        //             idx = b;
-        //             break;
-        //         }
-
-        // inner_done:    
-
-            if (idx < nKey && cur->keys[idx] == key) // just found index node
+            idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, key) - cur->keys;
+            if (idx < cur->nKey && cur->keys[idx] == key) // just found index node
             {
                 indexNode_level = i;
                 idx ++;
             }
+            if (idx != 0)
+            	sib_level = i;
             ppos[i++] = idx;
             cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
         }
@@ -1182,21 +1147,18 @@ bool FPtree::deleteKey(uint64_t key)
         {
             if (parent) // try lock left sibling if exist, then remove leaf from parent and update inner nodes
             {
-                idx = i;
-                while (idx >= 0 && ppos[idx] == 0)
-                    idx --;
-                if (idx >= 0)   // left sibling exists, find and try lock it
+                if (sib_level >= 0)   // left sibling exists
                 {
-                    cur = reinterpret_cast<InnerNode*> (inners[idx]->p_children[ppos[idx] - 1]);
+                    cur = reinterpret_cast<InnerNode*> (inners[sib_level]->p_children[ppos[sib_level] - 1]);
                     while (cur->isInnerNode)
                         cur = reinterpret_cast<InnerNode*> (cur->p_children[cur->nKey]);
                     sibling = reinterpret_cast<LeafNode*> (cur);
                     if (!sibling->Lock())
                     {
-                        leaf->Unlock(); lock_delete.release(); continue;
+                        lock_delete.release(); leaf->Unlock(); continue;
                     }
                 }
-                removeKeyAndMergeInnerNodes(inners, ppos, i, indexNode_level, key);
+                removeLeafAndMergeInnerNodes(i, indexNode_level);
             }
             decision = Result::Delete;
         }
@@ -1205,7 +1167,7 @@ bool FPtree::deleteKey(uint64_t key)
     }
     if (decision == Result::Remove)
     {
-        leaf->removeKVByIdx(lstat.kv_idx);
+        leaf->bitmap.reset(lstat.kv_idx);
         #ifdef PMEM
             TOID(struct LeafNode) lf = pmemobj_oid(leaf);
             pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
