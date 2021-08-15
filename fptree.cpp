@@ -446,7 +446,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode
     }
 
     #ifdef PMEM
-        uint64_t slot = &D_RO(insertNode)->bitmap.first_zero();
+        uint64_t slot = (struct LeafNode *) pmemobj_direct(insertNode.oid)->bitmap.first_zero();
         assert(slot < MAX_LEAF_SIZE && "Slot idx out of bound");
         D_RW(insertNode)->kv_pairs[slot] = kv; 
         D_RW(insertNode)->fingerprints[slot] = getOneByteHash(kv.key);

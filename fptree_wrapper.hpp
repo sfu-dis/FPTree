@@ -34,7 +34,6 @@ fptree_wrapper::fptree_wrapper()
 
 fptree_wrapper::~fptree_wrapper()
 {
-    tree_.printTSXInfo();
 }
 
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
