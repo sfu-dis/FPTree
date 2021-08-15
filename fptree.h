@@ -443,8 +443,8 @@ private:
 
     void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
 
-    void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode, 
-                                            Result decision, struct KV kv, bool updateFunc, uint64_t prevPos);
+    void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result decision, struct KV kv, 
+    															bool updateFunc, uint64_t prevPos);
 
     // merge parent with sibling, may incur further merges. Remove key from indexNode after
     void removeLeafAndMergeInnerNodes(short i, short indexNode_level);
