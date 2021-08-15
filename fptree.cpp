@@ -272,8 +272,8 @@ FPtree::~FPtree()
     #ifdef PMEM
         pmemobj_close(pop);
     #else
-        // if (root != nullptr)
-        //     delete root;
+        if (root != nullptr)
+            delete root;
     #endif  
 }
 
@@ -403,11 +403,6 @@ InnerNode* FPtree::findParent(uint64_t key, BaseNode* child)
     return nullptr;
 }
 
-
-template <typename T>
-static inline T volatile_read(T volatile &x) {
-  return *&x;
-}
 
 uint64_t FPtree::find(uint64_t key)
 {
@@ -1200,77 +1195,42 @@ bool FPtree::ScanComplete()
 uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
 {
 	LeafNode* leaf, * next_leaf;
-	std::vector<KV> records;
-	records.reserve(scan_size);
-	uint64_t i;
-	int retriesLeft = 15;
-	tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
+    std::vector<KV> records;
+    records.reserve(scan_size);
+    uint64_t i;
+    tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
     while (true) 
     {
-        if (_xbegin() == _XBEGIN_STARTED)
+        scan_abort_counter++;
+        lock_scan.acquire(speculative_lock, true);
+        if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
+        if (!leaf->Lock()) { lock_scan.release(); continue; }
+        for (i = 0; i < MAX_LEAF_SIZE; i++)
+            if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
+                records.push_back(leaf->kv_pairs[i]);
+        while (records.size() < scan_size)
         {
-        	if ((leaf = findLeaf(key)) == nullptr) { _xend(); return 0; }
-        	if (!leaf->Lock()) { _xabort(1); continue; }
-        	for (i = 0; i < MAX_LEAF_SIZE; i++)
-        		if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
-        			records.push_back(leaf->kv_pairs[i]);
-        	while (records.size() < scan_size)
-        	{
-        		#ifdef PMEM
-	        		if (TOID_IS_NULL(leaf->p_next))
-	        			break;
-        			next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
-        		#else
-        			if ((next_leaf = leaf->p_next) == nullptr)
-        				break;
-        		#endif
-        		while (!next_leaf->Lock())
-        			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-        		leaf->_unlock();
-        		leaf = next_leaf;
-        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
-	        		if (leaf->bitmap.test(i))
-	        			records.push_back(leaf->kv_pairs[i]);
-        	}
-        	_xend();
-        	break;
+            #ifdef PMEM
+                if (TOID_IS_NULL(leaf->p_next))
+                    break;
+                next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
+            #else
+                if ((next_leaf = leaf->p_next) == nullptr)
+                    break;
+            #endif
+            while (!next_leaf->Lock())
+                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            leaf->Unlock();
+            leaf = next_leaf;
+            for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
+                if (leaf->bitmap.test(i))
+                    records.push_back(leaf->kv_pairs[i]);
         }
-        else
-        {
-        	retriesLeft--;
-        	if (retriesLeft < 0)
-        	{
-        		lock_scan.acquire(speculative_lock, true);
-        		if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
-	        	if (!leaf->Lock()) { lock_scan.release(); continue; }
-	        	for (i = 0; i < MAX_LEAF_SIZE; i++)
-	        		if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
-	        			records.push_back(leaf->kv_pairs[i]);
-	        	while (records.size() < scan_size)
-	        	{
-	        		#ifdef PMEM
-		        		if (TOID_IS_NULL(leaf->p_next))
-		        			break;
-	        			next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
-	        		#else
-	        			if ((next_leaf = leaf->p_next) == nullptr)
-	        				break;
-	        		#endif
-	        		while (!next_leaf->Lock())
-        				std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	        		leaf->_unlock();
-	        		leaf = next_leaf;
-	        		for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
-		        		if (leaf->bitmap.test(i))
-		        			records.push_back(leaf->kv_pairs[i]);
-	        	}
-	        	lock_scan.release();
-	        	break;
-        	}
-        }
+        lock_scan.release();
+        break;
     }
     if (leaf && leaf->lock == 1)
-    	leaf->_unlock();
+        leaf->Unlock();
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
     });

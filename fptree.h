@@ -29,6 +29,7 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 #include <malloc.h>
+#include <cassert>
 
 #define original_tbb
 
@@ -40,8 +41,7 @@
     #include "oneapi/tbb/spin_rw_mutex.h"
 #endif
 
-#define NDEBUG
-#include <cassert>
+
 
 #define TEST_MODE 0
 
@@ -260,17 +260,6 @@ public:
 
     // return min key in leaf
     uint64_t minKey();
-
-    void _lock() 
-    { 
-        uint64_t expected = 0;
-        while (!std::atomic_compare_exchange_strong(&lock, &expected, 1))
-            expected = 0;
-    }
-    void _unlock() 
-    { 
-        this->lock = 0; 
-    }
 
     bool Lock()
     {
