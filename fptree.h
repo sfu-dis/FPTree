@@ -31,7 +31,7 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
-#if TEST_MODE == 0
+#ifdef TEST_MODE
     #define MAX_INNER_SIZE 128
     #define MAX_LEAF_SIZE 64
     #define SIZE_ONE_BYTE_HASH 1
@@ -70,12 +70,6 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
 static uint8_t getOneByteHash(uint64_t key);
 
-
-#ifdef PMEM
-    uint64_t findFirstZero(TOID(struct LeafNode) *dst);
-#endif
-
-
 struct KV
 {
     uint64_t key;
@@ -83,6 +77,13 @@ struct KV
 
     KV() {}
     KV(uint64_t key, uint64_t value) { this->key = key; this->value = value; }
+};
+
+struct LeafNodeStat
+{
+    uint64_t kv_idx;    // bitmap index of key
+    uint64_t count;     // number of kv in leaf 
+    uint64_t min_key;   // min key excluding key
 };
 
 // This Bitset class implements bitmap of size <= 64
@@ -141,10 +142,21 @@ class Bitset
         return bits == offset;
     }
 
+    inline size_t count() 
+    {
+        return __builtin_popcountl(bits);
+    }
+
     inline size_t first_set()
     {
         size_t idx = __builtin_ffsl(bits);
-        return idx ? idx - 1 : 64;
+        return idx ? idx - 1 : MAX_LEAF_SIZE;
+    }
+
+    inline size_t first_zero() 
+    {
+        size_t idx = __builtin_ffsl(bits ^ offset);
+        return idx? idx - 1 : MAX_LEAF_SIZE;
     }
 
     void print_bits()
@@ -182,8 +194,12 @@ struct InnerNode : BaseNode
 
  public:
     InnerNode();
+    InnerNode(uint64_t key, BaseNode* left, BaseNode* right);
     InnerNode(const InnerNode& inner);
     ~InnerNode();
+
+    // for using mempool only where constructor is not called 
+    void init(uint64_t key, BaseNode* left, BaseNode* right);
 
     // return index of child in p_children when searching key in this innernode
     uint64_t findChildIndex(uint64_t key);
@@ -195,12 +211,6 @@ struct InnerNode : BaseNode
     void addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right);
 } __attribute__((aligned(64)));
 
-struct LeafNodeStat
-{
-    uint64_t kv_idx;    // bitmap index of key
-    uint64_t count;     // number of kv in leaf
-    uint64_t min_key;   // min key except key
-};
 
 struct LeafNode : BaseNode
 {
@@ -226,26 +236,15 @@ struct LeafNode : BaseNode
         LeafNode& operator=(const LeafNode& leaf);
     #endif
 
-    // return position of first unset bit in bitmap, return bitmap size if all bits are set
-    uint64_t findFirstZero();
-
-    bool isFull() { return this->bitmap.is_full(); }
+    inline bool isFull() { return this->bitmap.is_full(); }
 
     void addKV(struct KV kv);
-
-    // find kv with kv.key = key and remove it, return kv.value
-    uint64_t removeKV(uint64_t key);
-
-    // remove kv at pos, return kv.value
-    uint64_t removeKVByIdx(uint64_t pos);
 
     // find index of kv that has kv.key = key, return MAX_LEAF_SIZE if key not found
     uint64_t findKVIndex(uint64_t key);
 
     // return min key in leaf
     uint64_t minKey();
-
-    inline uint64_t firstKey() { return kv_pairs[bitmap.first_set()].key; }
 
     bool Lock()
     {
@@ -293,20 +292,15 @@ struct LeafNode : BaseNode
     };
 
     static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg);
-#endif
 
-#ifdef PMEM
     struct List
     {
         TOID(struct LeafNode) head;
     };
-#endif
-
 
 /*
     uLog
 */
-#ifdef PMEM
     struct Log
     {
         TOID(struct LeafNode) PCurrentLeaf;
@@ -320,7 +314,7 @@ struct LeafNode : BaseNode
 #endif
 
 
-struct Stack
+struct Stack //TODO: Get rid of Stack
 {
  public:
     static const uint64_t kMaxNodes = 32;
@@ -346,24 +340,21 @@ struct Stack
 };
 
 static thread_local Stack stack_innerNodes;
-static thread_local uint64_t CHILD_IDX;  // the idx of leafnode w.r.t its immediate parent innernode
-static thread_local InnerNode* INDEX_NODE;  // pointer to inner node that contains key
-static thread_local uint64_t INDEX_KEY_IDX;  // child index of INDEX_NODE
+static thread_local InnerNode* inners[32];
+static thread_local short ppos[32];
 
 struct FPtree
 {
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
 
-    InnerNode* right_most_innnerNode;
+    InnerNode* right_most_innnerNode; // for bulkload
 
  public:
     FPtree();
     ~FPtree();
 
     BaseNode* getRoot () { return this->root; }
-
-    void displayTree(BaseNode *root);
 
     void printFPTree(std::string prefix, BaseNode *root);
 
@@ -379,14 +370,13 @@ struct FPtree
     // delete key from tree
     bool deleteKey(uint64_t key);
 
+    // TODO: fix/optimize iterator based scan methods
     // initialize scan by finding the first kv with kv.key >= key
     void scanInitialize(uint64_t key);
 
     KV scanNext();
 
     bool scanComplete();
-
-    void printTSXInfo();
 
     uint64_t rangeScan(uint64_t key, uint64_t scan_size, char*& result);
 
@@ -415,18 +405,16 @@ struct FPtree
 
     void updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* leaf);
 
-    void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, InnerNode* parentNode,
-                                            Result decision, struct KV kv, bool updateFunc, uint64_t prevPos);
+    void splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result decision, struct KV kv, 
+                                                                bool updateFunc, uint64_t prevPos);
 
     // merge parent with sibling, may incur further merges. Remove key from indexNode after
-    void removeKeyAndMergeInnerNodes(InnerNode* indexNode, InnerNode* parent, uint64_t child_idx, uint64_t key);
+    void removeKeyAndMergeInnerNodes(short i, short indexNode_level);
 
     // try transfer a key from sender to receiver, sender and receiver should be immediate siblings
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0
     // return false if cannot borrow key from sender
     bool tryBorrowKey(InnerNode* parent, uint64_t receiver_idx, uint64_t sender_idx);
-
-    LeafNode* leftSibling(uint64_t key);
 
     uint64_t minKey(BaseNode* node);
 
