@@ -393,8 +393,5 @@ int main()
 
 	// #endif
 
-
-    fptree.printTSXInfo();
-
 	return 0;
 }
