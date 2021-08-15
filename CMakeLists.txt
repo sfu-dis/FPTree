@@ -74,5 +74,6 @@ if (NOT pibench_POPULATED)
 endif ()
 
 
-add_library(fptree_pibench_wrapper SHARED fptree_wrapper.cpp)
+add_library(fptree_pibench_wrapper SHARED fptree_wrapper.cpp
+						fptree.cpp)
 
