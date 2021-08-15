@@ -409,7 +409,7 @@ struct FPtree
                                                                 bool updateFunc, uint64_t prevPos);
 
     // merge parent with sibling, may incur further merges. Remove key from indexNode after
-    void removeKeyAndMergeInnerNodes(short i, short indexNode_level);
+    void removeLeafAndMergeInnerNodes(short i, short indexNode_level);
 
     // try transfer a key from sender to receiver, sender and receiver should be immediate siblings
     // If receiver & sender are inner nodes, will assume the only child in receiver is at index 0

@@ -100,7 +100,7 @@ inline uint64_t InnerNode::findChildIndex(uint64_t key)
 
 inline void LeafNode::addKV(struct KV kv)
 {
-    uint64_t idx = this->findFirstZero();
+    uint64_t idx = this->bitmap.first_zero();
     assert(idx < MAX_LEAF_SIZE && "Insert kv out of bound!");
     this->fingerprints[idx] = getOneByteHash(kv.key);
     this->kv_pairs[idx] = kv;
@@ -804,7 +804,7 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     }
 #endif
 
-void FPtree::removeKeyAndMergeInnerNodes(short i, short indexNode_level)
+void FPtree::removeLeafAndMergeInnerNodes(short i, short indexNode_level)
 {
     InnerNode* temp, *left, *right, *parent = inners[i];
     uint64_t left_idx, new_key = 0, child_idx = ppos[i];
@@ -1150,7 +1150,6 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
     tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
     while (true) 
     {
-        scan_abort_counter++;
         lock_scan.acquire(speculative_lock, true);
         if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
         if (!leaf->Lock()) { lock_scan.release(); continue; }
