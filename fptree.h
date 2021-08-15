@@ -31,7 +31,7 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
-#ifdef TEST_MODE
+#ifdef TEST_MODE == 0
     #define MAX_INNER_SIZE 128
     #define MAX_LEAF_SIZE 64
     #define SIZE_ONE_BYTE_HASH 1
