@@ -31,14 +31,14 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
-#ifdef TEST_MODE == 0
-    #define MAX_INNER_SIZE 128
-    #define MAX_LEAF_SIZE 64
+#ifdef TEST_MODE
+    #define MAX_INNER_SIZE 3
+    #define MAX_LEAF_SIZE 4
     #define SIZE_ONE_BYTE_HASH 1
     #define SIZE_PMEM_POINTER 16
 #else
-    #define MAX_INNER_SIZE 3
-    #define MAX_LEAF_SIZE 4
+    #define MAX_INNER_SIZE 128
+    #define MAX_LEAF_SIZE 64
     #define SIZE_ONE_BYTE_HASH 1
     #define SIZE_PMEM_POINTER 16
 #endif
