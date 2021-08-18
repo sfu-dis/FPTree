@@ -156,7 +156,7 @@ class Bitset
     inline size_t first_zero() 
     {
         size_t idx = __builtin_ffsl(bits ^ offset);
-        return idx? idx - 1 : MAX_LEAF_SIZE;
+        return idx ? idx - 1 : MAX_LEAF_SIZE;
     }
 
     void print_bits()

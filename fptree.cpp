@@ -570,7 +570,6 @@ bool FPtree::update(struct KV kv)
     volatile Result decision = Result::Abort;
     while (decision == Result::Abort)
     {
-        // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         lock_update.acquire(speculative_lock, false);
         if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) { lock_update.release(); return false; }
         if (!reachedLeafNode->Lock()) { lock_update.release(); continue; }
@@ -728,9 +727,10 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     KV tempArr[MAX_LEAF_SIZE];
     memcpy(tempArr, leaf->kv_pairs, sizeof(leaf->kv_pairs));
     // TODO: find median in one pass instead of sorting
-    std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2){
-            return kv1.key < kv2.key;
-        });
+    std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2)
+    {
+        return kv1.key < kv2.key;
+    });
 
     uint64_t mid = floor(MAX_LEAF_SIZE / 2);
     uint64_t splitKey = tempArr[mid].key;
