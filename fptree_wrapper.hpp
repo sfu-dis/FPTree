@@ -68,7 +68,9 @@ bool fptree_wrapper::remove(const char* key, size_t key_sz)
 
 int fptree_wrapper::scan(const char* key, size_t key_sz, int scan_sz, char*& values_out)
 {
-    return tree_.rangeScan(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), (uint64_t)scan_sz, values_out);
+    constexpr size_t ONE_MB = 1ULL << 20;
+    static thread_local char results[ONE_MB];
+    return tree_.rangeScan(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), (uint64_t)scan_sz, results);
 }
 
 #endif
