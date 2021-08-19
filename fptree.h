@@ -378,7 +378,7 @@ struct FPtree
 
     bool scanComplete();
 
-    uint64_t rangeScan(uint64_t key, uint64_t scan_size, char*& result);
+    uint64_t rangeScan(uint64_t key, uint64_t scan_size, char* result);
 
     #ifdef PMEM
         bool bulkLoad(float load_factor);

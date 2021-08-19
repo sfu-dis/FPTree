@@ -1141,7 +1141,7 @@ bool FPtree::scanComplete()
 }
 
 
-uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
+uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
 {
     LeafNode* leaf, * next_leaf;
     std::vector<KV> records;
