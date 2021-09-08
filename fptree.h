@@ -1,3 +1,11 @@
+// Copyright (c) Simon Fraser University. All rights reserved.
+// Licensed under the MIT license.
+//
+// Authors:
+// George He <georgeh@sfu.ca>
+// Duo Lu <luduol@sfu.ca>
+// Tianzheng Wang <tzwang@sfu.ca>
+
 #pragma once
 #include <stdio.h>
 #include <stdlib.h>
