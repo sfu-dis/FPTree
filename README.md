@@ -54,7 +54,7 @@ If you want to check performance of this implementation, please see PiBench inst
 
 We officially support FPTree wrapper for pibench:
 
-Checkout PiBench here: https://github.com/wangtzh/pibench
+Checkout PiBench here: https://github.com/sfu-dis/pibench
 
 ### Build/Create FPTree shared lib
 
