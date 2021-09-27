@@ -2,8 +2,8 @@
 // Licensed under the MIT license.
 //
 // Authors:
-// George He <georgeh@sfu.ca>
 // Duo Lu <luduol@sfu.ca>
+// George He <georgeh@sfu.ca>
 // Tianzheng Wang <tzwang@sfu.ca>
 
 #include "fptree.h"
@@ -424,9 +424,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         }
         pmemobj_persist(pop, &D_RO(insertNode)->bitmap, sizeof(D_RO(insertNode)->bitmap));
     #else
-        insertNode->addKV(kv); 
-        if (prevPos != MAX_LEAF_SIZE)
-            insertNode->bitmap.reset(prevPos);
+        if (updateFunc)
+            insertNode->kv_pairs[prevPos].value = kv.value;
+        else
+            insertNode->addKV(kv);
     #endif
 
     if (decision == Result::Split)
@@ -599,7 +600,6 @@ bool FPtree::update(struct KV kv)
     
     return true;
 }
-
 
 
 bool FPtree::insert(struct KV kv) 
