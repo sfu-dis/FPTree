@@ -424,7 +424,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         }
         pmemobj_persist(pop, &D_RO(insertNode)->bitmap, sizeof(D_RO(insertNode)->bitmap));
     #else
-        insertNode->kv_pairs[prevPos].value = kv.value;
+        if (updateFunc)
+            insertNode->kv_pairs[prevPos].value = kv.value;
+        else
+            insertNode->addKV(kv);
     #endif
 
     if (decision == Result::Split)
