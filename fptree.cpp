@@ -2,8 +2,8 @@
 // Licensed under the MIT license.
 //
 // Authors:
-// Duo Lu <luduol@sfu.ca>
 // George He <georgeh@sfu.ca>
+// Duo Lu <luduol@sfu.ca>
 // Tianzheng Wang <tzwang@sfu.ca>
 
 #include "fptree.h"
@@ -350,8 +350,8 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
 
 inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
 {
-	if (!root)
-		return nullptr;
+    if (!root)
+	return nullptr;
     stack_innerNodes.clear();
     if (!root->isInnerNode) 
     {

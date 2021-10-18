@@ -2,8 +2,8 @@
 // Licensed under the MIT license.
 //
 // Authors:
-// Duo Lu <luduol@sfu.ca>
 // George He <georgeh@sfu.ca>
+// Duo Lu <luduol@sfu.ca>
 // Tianzheng Wang <tzwang@sfu.ca>
 
 #pragma once
