@@ -16,8 +16,6 @@
 #include <time.h>
 #include <string.h>
 #include <immintrin.h>
-#include <tbb/spin_mutex.h>
-#include <tbb/spin_rw_mutex.h>
 #include <iostream>
 #include <string>
 #include <cstdint>
@@ -178,16 +176,29 @@ class Bitset
 /*******************************************************
                   Define node struture 
 ********************************************************/
-
+thread_local uint64_t expected;
 
 struct BaseNode
 {
+	std::atomic<uint64_t> lock;
+
     bool isInnerNode;
 
     friend class FPtree;
 
  public:
     BaseNode();
+
+    bool Lock()
+    {
+        expected = 0;
+        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+    }
+
+    void Unlock()
+    {
+        this->lock = 0;
+    }
 } __attribute__((aligned(64)));
 
 
@@ -233,8 +244,6 @@ struct LeafNode : BaseNode
         LeafNode* p_next;
     #endif
 
-    std::atomic<uint64_t> lock;
-
     friend class FPtree;
 
  public:
@@ -253,16 +262,6 @@ struct LeafNode : BaseNode
 
     // return min key in leaf
     uint64_t minKey();
-
-    bool Lock()
-    {
-        uint64_t expected = 0;
-        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
-    }
-    void Unlock()
-    {
-        this->lock = 0;
-    }
 
     void getStat(uint64_t key, LeafNodeStat& lstat);
 } __attribute__((aligned(64)));
@@ -354,7 +353,6 @@ static thread_local short ppos[32];
 struct FPtree
 {
     BaseNode *root;
-    tbb::speculative_spin_rw_mutex speculative_lock;
 
     InnerNode* right_most_innnerNode; // for bulkload
 
@@ -402,7 +400,7 @@ struct FPtree
 
  private:
     // return leaf that may contain key, does not push inner nodes
-    LeafNode* findLeaf(uint64_t key);
+    LeafNode* findLeaf(uint64_t key, InnerNode* ancestor);
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
