@@ -16,6 +16,8 @@
 #include <time.h>
 #include <string.h>
 #include <immintrin.h>
+#include <tbb/spin_mutex.h>
+#include <tbb/spin_rw_mutex.h>
 #include <iostream>
 #include <string>
 #include <cstdint>
@@ -349,6 +351,7 @@ struct Stack //TODO: Get rid of Stack
 static thread_local Stack stack_innerNodes;
 static thread_local InnerNode* inners[32];
 static thread_local short ppos[32];
+static thread_local short i_;
 
 struct FPtree
 {
@@ -400,7 +403,9 @@ struct FPtree
 
  private:
     // return leaf that may contain key, does not push inner nodes
-    LeafNode* findLeaf(uint64_t key, InnerNode* ancestor);
+    LeafNode* findLeaf(uint64_t key);
+
+    LeafNode* findLeafAssumeSplit(uint64_t key, BaseNode*& ancestor, bool& split);
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);

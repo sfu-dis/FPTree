@@ -334,7 +334,7 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
     }
 }
 
-inline LeafNode* FPtree::findLeaf(uint64_t key, InnerNode* ancestor = nullptr) 
+inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
 	InnerNode* first;
 	BaseNode* second;
@@ -363,6 +363,61 @@ retry:
     	first->Unlock();
     	first = reinterpret_cast<InnerNode*> (second);
     }
+    return reinterpret_cast<LeafNode*> (second);
+}
+
+inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode*& ancestor, bool& split) 
+{
+    BaseNode* first;
+    BaseNode* second;
+    ancestor = nullptr;
+    split = false;
+    int idx;
+retry:
+    i_ = 0;
+    if (!root)
+        return nullptr;
+    if (!root->Lock())
+    {
+        // backoff?
+        goto retry;
+    }
+    first = root;
+    second = first;
+    if (root->isInnerNode)
+    {
+        inners[i_] = root;
+        while(true)
+        {
+            idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
+            second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
+            ppos[i_++] = idx;
+            while (!second->Lock());
+            if (second->isInnerNode)
+            {
+                inners[i_] = second;
+                if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
+                {
+                    first->Unlock();    // releasel lock on previous ancester
+                    first = second;
+                }
+                else // inner full, keep going without lock
+                {
+                    second->Unlock();
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+    if ((reinterpret_cast<LeafNode*> (second))->isFull())
+        split = true;
+    if (first != second && !split)
+        first->Unlock();
+    else
+        ancestor = first;
     return reinterpret_cast<LeafNode*> (second);
 }
 
@@ -453,13 +508,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
     #else
         newLeafNode = reachedLeafNode->p_next;
     #endif
-        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
         uint64_t mid = MAX_INNER_SIZE / 2, new_splitKey, insert_pos;
         InnerNode* cur, *parent, *newInnerNode;
         BaseNode* child;
-        short i = 0, idx;
         /*---------------- Second Critical Section -----------------*/
-        lock_split.acquire(speculative_lock);
         if (!root->isInnerNode) // splitting when tree has only root 
         {
             cur = new InnerNode();
@@ -468,21 +520,21 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         }
         else // need to retraverse & update parent
         {
-            cur = reinterpret_cast<InnerNode*> (root);
-            while(cur->isInnerNode)
-            {
-                inners[i] = cur;
-                idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
-                if (idx < cur->nKey && cur->keys[idx] == kv.key) // TODO: this should always be false
-                    idx ++;
-                ppos[i++] = idx;
-                cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
-            }
-            parent = inners[--i];
+            // cur = reinterpret_cast<InnerNode*> (root);
+            // while(cur->isInnerNode)
+            // {
+            //     inners[i] = cur;
+            //     idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
+            //     if (idx < cur->nKey && cur->keys[idx] == kv.key) // TODO: this should always be false
+            //         idx ++;
+            //     ppos[i++] = idx;
+            //     cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
+            // }
+            parent = inners[--i_];
             child = newLeafNode;
             while (true)
             {
-                insert_pos = ppos[i--];
+                insert_pos = ppos[i_--];
                 if (parent->nKey < MAX_INNER_SIZE)
                 {
                     parent->addKey(insert_pos, splitKey, child);
@@ -518,13 +570,12 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                         root = cur;
                         break;
                     }
-                    parent = inners[i];
+                    parent = inners[i_];
                     child = newInnerNode;
                 }
             }
         }
         newLeafNode->Unlock();
-        lock_split.release();
         /*---------------- End of Second Critical Section -----------------*/
     }
 }
@@ -588,24 +639,27 @@ void FPtree::updateParents(uint64_t splitKey, InnerNode* parent, BaseNode* child
 
 bool FPtree::update(struct KV kv)
 {
-	InnerNode ancestor;
+	BaseNode* ancestor;
     LeafNode* reachedLeafNode;
+    bool split;
     uint64_t prevPos;
-    if ((reachedLeafNode = findLeaf(kv.key, true)) == nullptr) 
+    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, ancestor, split)) == nullptr) 
 		return false;
-    if (!reachedLeafNode->Lock()) { lock_update.release(); continue; }
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos == MAX_LEAF_SIZE) // key not found
     {
+        if (ancestor && ancestor != reachedLeafNode)
+            ancestor->Unlock();
         reachedLeafNode->Unlock();
         return false;
     }
-    decision = reachedLeafNode->isFull() ? Result::Split : Result::Update;
+    decision = split ? Result::Split : Result::Update;
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, true, prevPos);
 
     reachedLeafNode->Unlock();
-    
+    if (ancestor && ancestor != reachedLeafNode)
+        ancestor->Unlock();
     return true;
 }
 
