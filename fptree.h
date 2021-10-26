@@ -356,6 +356,7 @@ static thread_local short i_;
 struct FPtree
 {
     BaseNode *root;
+    tbb::speculative_spin_rw_mutex speculative_lock;
 
     InnerNode* right_most_innnerNode; // for bulkload
 

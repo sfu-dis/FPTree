@@ -386,7 +386,7 @@ retry:
     second = first;
     if (root->isInnerNode)
     {
-        inners[i_] = root;
+        inners[i_] = reinterpret_cast<InnerNode*> (root);
         while(true)
         {
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
@@ -395,7 +395,7 @@ retry:
             while (!second->Lock());
             if (second->isInnerNode)
             {
-                inners[i_] = second;
+                inners[i_] = reinterpret_cast<InnerNode*> (second);
                 if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
                 {
                     first->Unlock();    // releasel lock on previous ancester
@@ -653,7 +653,7 @@ bool FPtree::update(struct KV kv)
         reachedLeafNode->Unlock();
         return false;
     }
-    decision = split ? Result::Split : Result::Update;
+    Result decision = split ? Result::Split : Result::Update;
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, true, prevPos);
 
