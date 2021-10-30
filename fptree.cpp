@@ -666,13 +666,11 @@ bool FPtree::update(struct KV kv)
 
 bool FPtree::insert(struct KV kv) 
 {
-    tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
-    if (!root)  // if tree is empty
+    while (!root)  // if tree is empty
     {
-        lock_insert.acquire(speculative_lock, true);
-        if (!root)
-        {
-            #ifdef PMEM
+    	if (Lock())
+    	{
+    		#ifdef PMEM
                 struct argLeafNode args(kv);
                 TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
                 TOID(struct LeafNode) *dst = &D_RW(ListHead)->head;
@@ -681,48 +679,34 @@ bool FPtree::insert(struct KV kv)
                 pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
                 root = (struct BaseNode *) pmemobj_direct((*dst).oid);
             #else
-                root = new LeafNode();
-                reinterpret_cast<LeafNode*>(root)->lock = 1;
-                reinterpret_cast<LeafNode*> (root)->addKV(kv);
-                reinterpret_cast<LeafNode*>(root)->lock = 0;
+                auto new_root = new LeafNode();
+                new_root->addKV(kv);
+                root = new_root;
             #endif
-            lock_insert.release();
             return true;
-        }
-        lock_insert.release();
+    	}
     }
-
-    Result decision = Result::Abort;
-    InnerNode* cursor;
+    BaseNode* ancestor;
     LeafNode* reachedLeafNode;
-    uint64_t nKey;
-    int idx;
-    /*---------------- First Critical Section -----------------*/
+    bool split;
+    uint64_t prevPos;
+    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, ancestor, split)) == nullptr) 
+		return false;
+    prevPos = reachedLeafNode->findKVIndex(kv.key);
+    if (prevPos != MAX_LEAF_SIZE) // key already exists
     {
-    TBB_BEGIN:
-        lock_insert.acquire(speculative_lock, false);
-        reachedLeafNode = findLeaf(kv.key);
-        if (!reachedLeafNode->Lock()) 
-        { 
-            lock_insert.release(); 
-            goto TBB_BEGIN;
-        }
-        idx = reachedLeafNode->findKVIndex(kv.key);
-        if (idx != MAX_LEAF_SIZE)
-            reachedLeafNode->Unlock();
-        else
-            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-        lock_insert.release();
-    }
-    /*---------------- End of First Critical Section -----------------*/
-
-    if (decision == Result::Abort)  // kv already exists
+        if (ancestor && ancestor != reachedLeafNode)
+            ancestor->Unlock();
+        reachedLeafNode->Unlock();
         return false;
+    }
+    Result decision = split ? Result::Split : Result::Update;
 
-    splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv);
+    splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, false);
 
     reachedLeafNode->Unlock();
-    
+    if (ancestor && ancestor != reachedLeafNode)
+        ancestor->Unlock();
     return true;
 }
 

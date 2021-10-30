@@ -178,7 +178,7 @@ class Bitset
 /*******************************************************
                   Define node struture 
 ********************************************************/
-thread_local uint64_t expected;
+static thread_local uint64_t expected;
 
 struct BaseNode
 {
@@ -358,11 +358,24 @@ struct FPtree
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
 
+   	std::atomic<uint64_t> lock;
+
     InnerNode* right_most_innnerNode; // for bulkload
 
  public:
     FPtree();
     ~FPtree();
+
+    bool Lock()
+    {
+        expected = 0;
+        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+    }
+
+    void Unlock()
+    {
+        this->lock = 0;
+    }
 
     BaseNode* getRoot () { return this->root; }
 
