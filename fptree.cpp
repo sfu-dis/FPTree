@@ -344,7 +344,7 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-    	std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    	// std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         goto retry;
     }
     if (!root->isInnerNode)
@@ -356,7 +356,9 @@ retry:
     {
     	second = first->p_children[first->findChildIndex(key)];
     	while (!second->Lock())
-    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    	{
+    		// std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    	}
     	first->Unlock();
     	first = reinterpret_cast<InnerNode*> (second);
     }
@@ -376,7 +378,7 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-        std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         goto retry;
     }
     first = root;
@@ -391,7 +393,7 @@ retry:
             ppos[i_++] = idx;
             while (!second->Lock())
             {
-            	std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            	// std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             }
             if (second->isInnerNode)
             {
@@ -574,7 +576,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                     child = newInnerNode;
                 }
             }
-            assert(parent->lock && "Ancestor is not locked???");
+            assert(parent->lock && "Ancestor is not locked!");
         }
         newLeafNode->Unlock();
     }
