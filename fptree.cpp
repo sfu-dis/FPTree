@@ -390,7 +390,9 @@ retry:
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
             while (!second->Lock())
+            {
             	std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            }
             if (second->isInnerNode)
             {
                 inners[i_] = reinterpret_cast<InnerNode*> (second);
@@ -572,9 +574,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                     child = newInnerNode;
                 }
             }
+            assert(parent->lock && "Ancestor is not locked???");
         }
         newLeafNode->Unlock();
-        /*---------------- End of Second Critical Section -----------------*/
     }
 }
 
@@ -668,6 +670,11 @@ bool FPtree::insert(struct KV kv)
     {
     	if (Lock())
     	{
+    		if (root)
+    		{
+    			Unlock();
+            	break;
+    		}
     		#ifdef PMEM
                 struct argLeafNode args(kv);
                 TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
@@ -684,6 +691,7 @@ bool FPtree::insert(struct KV kv)
             Unlock();
             return true;
     	}
+    	//back off?
     }
     BaseNode* ancestor;
     LeafNode* reachedLeafNode;
@@ -703,9 +711,9 @@ bool FPtree::insert(struct KV kv)
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, false);
 
-    reachedLeafNode->Unlock();
     if (ancestor && ancestor != reachedLeafNode)
         ancestor->Unlock();
+    reachedLeafNode->Unlock();
     return true;
 }
 
