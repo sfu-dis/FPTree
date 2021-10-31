@@ -213,6 +213,7 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
 FPtree::FPtree() 
 {
     root = nullptr;
+    lock.store(0, std::memory_order_acquire);
     #ifdef PMEM
         const char *path = "./test_pool";
 
