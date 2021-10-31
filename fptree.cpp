@@ -344,9 +344,12 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-    	#ifdef backoff
+    	#ifdef backoff_sleep
     		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-    	#endif
+    	#elif defined(backoff_loop)
+    		volatile long long sum= 0;
+            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        #endif
         goto retry;
     }
     if (!root->isInnerNode)
@@ -359,9 +362,12 @@ retry:
     	second = first->p_children[first->findChildIndex(key)];
     	while (!second->Lock())
     	{
-    		#ifdef backoff
-    			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-    		#endif
+    		#ifdef backoff_sleep
+    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+	    	#elif defined(backoff_loop)
+	    		volatile long long sum= 0;
+	            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+	        #endif
     	}
     	first->Unlock();
     	first = reinterpret_cast<InnerNode*> (second);
@@ -382,9 +388,12 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-	    #ifdef backoff
-	        std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	    #endif
+	    #ifdef backoff_sleep
+    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    	#elif defined(backoff_loop)
+    		volatile long long sum= 0;
+            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        #endif
         goto retry;
     }
     first = root;
@@ -399,9 +408,12 @@ retry:
             ppos[i_++] = idx;
             while (!second->Lock())
             {
-	            #ifdef backoff
-	            	std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	            #endif
+	            #ifdef backoff_sleep
+		    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+		    	#elif defined(backoff_loop)
+		    		volatile long long sum= 0;
+		            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+		        #endif
             }
             if (second->isInnerNode)
             {

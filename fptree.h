@@ -51,7 +51,9 @@
     #define SIZE_PMEM_POINTER 16
 #endif
 
-#define backoff
+// #define backoff_sleep
+
+#define backoff_loop
 
 #if MAX_LEAF_SIZE > 64
     #error "Number of kv pairs in LeafNode must be <= 64."
