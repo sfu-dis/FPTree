@@ -344,7 +344,7 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-    	// backoff?
+    	std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         goto retry;
     }
     if (!root->isInnerNode)
@@ -355,12 +355,8 @@ retry:
     while(second->isInnerNode)
     {
     	second = first->p_children[first->findChildIndex(key)];
-    	while (!second->Lock());
-    	// {
-    	// 	first->Unlock();
-    	//  // backoff?
-    	// 	goto retry;
-    	// }
+    	while (!second->Lock())
+    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
     	first->Unlock();
     	first = reinterpret_cast<InnerNode*> (second);
     }
@@ -380,7 +376,7 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-        // backoff?
+        std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         goto retry;
     }
     first = root;
@@ -393,7 +389,8 @@ retry:
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
-            while (!second->Lock());
+            while (!second->Lock())
+            	std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             if (second->isInnerNode)
             {
                 inners[i_] = reinterpret_cast<InnerNode*> (second);
