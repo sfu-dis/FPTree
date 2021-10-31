@@ -681,6 +681,7 @@ bool FPtree::insert(struct KV kv)
                 new_root->addKV(kv);
                 root = new_root;
             #endif
+            Unlock();
             return true;
     	}
     }
