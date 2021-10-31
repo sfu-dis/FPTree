@@ -15,6 +15,12 @@
     }
 #endif
 
+uint64_t rdtsc(){
+    unsigned int lo,hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
 BaseNode::BaseNode() 
 {
     this->isInnerNode = false;
@@ -1333,11 +1339,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
     Put program between 
     std::cout << rdtsc() - tick << std::endl;
 */
-uint64_t rdtsc(){
-    unsigned int lo,hi;
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    return ((uint64_t)hi << 32) | lo;
-}
+
 
 
 
