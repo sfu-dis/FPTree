@@ -412,6 +412,11 @@ retry:
     }
     i_ = 0;
     second = first;
+    if (root != first){ // debug
+    	printf("Root is not first\n");
+    	first->Unlock();
+    	goto retry;
+    }
     if (first->isInnerNode)
     {
         inners[i_] = reinterpret_cast<InnerNode*> (first);
