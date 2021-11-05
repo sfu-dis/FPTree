@@ -356,7 +356,7 @@ static thread_local Stack stack_innerNodes;
 static thread_local InnerNode* inners[32];
 static thread_local short ppos[32];
 static thread_local short i_;
-static thread_local BaseNode* ANCESTER; //debug
+// static thread_local BaseNode* ANCESTER; //debug
 
 struct FPtree
 {

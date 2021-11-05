@@ -354,12 +354,12 @@ retry:
         return nullptr;
     if (!root->Lock())
     {
-    	#ifdef backoff_sleep
-    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-    	#elif defined(backoff_loop)
-    		volatile long long sum= 0;
-            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-        #endif
+	#ifdef backoff_sleep
+		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+	#elif defined(backoff_loop)
+		volatile long long sum= 0;
+        for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+    #endif
         goto retry;
     }
     if (!root->isInnerNode)
@@ -372,12 +372,12 @@ retry:
     	second = first->p_children[first->findChildIndex(key)];
     	while (!second->Lock())
     	{
-    		#ifdef backoff_sleep
-    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	    	#elif defined(backoff_loop)
-	    		volatile long long sum= 0;
-	            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-	        #endif
+		#ifdef backoff_sleep
+			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+    	#elif defined(backoff_loop)
+    		volatile long long sum= 0;
+            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        #endif
     	}
     	first->Unlock();
     	first = reinterpret_cast<InnerNode*> (second);
@@ -392,16 +392,16 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, 
     *ancestor = nullptr;
     split = false;
     int idx;
-    int retries = 0; // debug
+    // int retries = 0; // debug
 retry:
 	first = root;
     if (!first)
         return nullptr;
     if (!first->Lock())
     {
-    	retries ++; //debug
-    	if (retries == 10000000) // debug
-    		printf("Failed to acquire root: %p in 10000000 tries!\n", first);
+    	// retries ++; //debug
+    	// if (retries == 10000000) // debug
+    		// printf("Failed to acquire root: %p in 10000000 tries!\n", first);
 	    #ifdef backoff_sleep
     		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
     	#elif defined(backoff_loop)
@@ -420,17 +420,17 @@ retry:
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
-            retries = 0; // debug
+            // retries = 0; // debug
             while (!second->Lock())
             {
-            	retries ++; //debug
-		    	if (retries == 10000000) // debug
-		    	{
-		    		if (second->isInnerNode)
-		    			printf("Failed to acquire inner node: %p in 10000000 tries!\n", second);
-		    		else
-		    			printf("Failed to acquire leaf node: %p in 10000000 tries!\n", second);
-		    	}
+       //      	retries ++; //debug
+		    	// if (retries == 10000000) // debug
+		    	// {
+		    	// 	if (second->isInnerNode)
+		    	// 		printf("Failed to acquire inner node: %p in 10000000 tries!\n", second);
+		    	// 	else
+		    	// 		printf("Failed to acquire leaf node: %p in 10000000 tries!\n", second);
+		    	// }
 	            #ifdef backoff_sleep
 		    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
 		    	#elif defined(backoff_loop)
@@ -464,7 +464,7 @@ retry:
     else
     {
         *ancestor = first;
-        ANCESTER = first; //debug
+        // ANCESTER = first; //debug
     }
     return reinterpret_cast<LeafNode*> (second);
 }
@@ -564,29 +564,15 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         {
             cur = new InnerNode();
             cur->init(splitKey, reachedLeafNode, newLeafNode);
-            printf("New root: %p \n", cur); // debug
+            // printf("New root: %p \n", cur); // debug
             root = cur;
         }
-        else // need to retraverse & update parent
+        else
         {
-            // cur = reinterpret_cast<InnerNode*> (root);
-            // while(cur->isInnerNode)
-            // {
-            //     inners[i] = cur;
-            //     idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
-            //     if (idx < cur->nKey && cur->keys[idx] == kv.key) // TODO: this should always be false
-            //         idx ++;
-            //     ppos[i++] = idx;
-            //     cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
-            // }
             parent = inners[--i_];
-            if (i_ < 0) // debug
-            	printf("stack underflow!\n");
             child = newLeafNode;
             while (true)
             {
-            	if (i_ < 0) // debug
-            		printf("stack underflow!\n");
                 insert_pos = ppos[i_--];
                 if (parent->nKey < MAX_INNER_SIZE)
                 {
@@ -620,7 +606,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                     if (parent == root)
                     {
                         cur = new InnerNode(splitKey, parent, newInnerNode);
-                        printf("New root: %p \n", cur); // debug
+                        // printf("New root: %p \n", cur); // debug
                         root = cur;
                         break;
                     }
@@ -628,11 +614,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                     child = newInnerNode;
                 }
             }
-            if (!parent->lock) // debug
-            	printf("Ancestor is not locked!\n");
-            if (ANCESTER != parent) // debug
-            	printf("Ancester: %p     last inner updated: %p\n", ANCESTER, parent);
-
+            // if (!parent->lock) // debug
+            // 	printf("Ancestor is not locked!\n");
+            // if (ANCESTER != parent) // debug
+            // 	printf("Ancester: %p     last inner updated: %p\n", ANCESTER, parent);
         }
         newLeafNode->Unlock();
     }
@@ -715,9 +700,9 @@ bool FPtree::update(struct KV kv)
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, true, prevPos);
 
-    reachedLeafNode->Unlock();
     if (ancestor && ancestor != reachedLeafNode)
         ancestor->Unlock();
+    reachedLeafNode->Unlock();
     return true;
 }
 
@@ -741,7 +726,7 @@ bool FPtree::insert(struct KV kv)
                 D_RW(ListHead)->head = *dst; 
                 pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
                 root = (struct BaseNode *) pmemobj_direct((*dst).oid);
-                printf("First root: %p \n", root); // debug
+                // printf("First root: %p \n", root); // debug
             #else
                 auto new_root = new LeafNode();
                 new_root->addKV(kv);
@@ -772,10 +757,6 @@ bool FPtree::insert(struct KV kv)
 
     if (ancestor && ancestor != reachedLeafNode)
         ancestor->Unlock();
-    else if (ancestor && ancestor->lock && ancestor->isInnerNode) //debug
-    {
-    	printf("WTF?\n");
-    }
     reachedLeafNode->Unlock();
     return true;
 }
@@ -1271,37 +1252,37 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
     std::vector<KV> records;
     records.reserve(scan_size);
     uint64_t i;
-    tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
-    while (true) 
+    if ((leaf = findLeaf(key)) == nullptr)
+    	return 0;
+    for (i = 0; i < MAX_LEAF_SIZE; i++)
+        if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
+            records.push_back(leaf->kv_pairs[i]);
+    while (records.size() < scan_size)
     {
-        lock_scan.acquire(speculative_lock, false);
-        if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
-        if (!leaf->Lock()) { lock_scan.release(); continue; }
-        for (i = 0; i < MAX_LEAF_SIZE; i++)
-            if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
-                records.push_back(leaf->kv_pairs[i]);
-        while (records.size() < scan_size)
-        {
-            #ifdef PMEM
-                if (TOID_IS_NULL(leaf->p_next))
-                    break;
-                next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
-            #else
-                if ((next_leaf = leaf->p_next) == nullptr)
-                    break;
-            #endif
-            while (!next_leaf->Lock())
-                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            leaf->Unlock();
-            leaf = next_leaf;
-            for (i = 0; i < MAX_LEAF_SIZE; i++)
-                if (leaf->bitmap.test(i))
-                    records.push_back(leaf->kv_pairs[i]);
-        }
-        lock_scan.release();
-        break;
+    #ifdef PMEM
+        if (TOID_IS_NULL(leaf->p_next))
+            break;
+        next_leaf = (struct LeafNode *) pmemobj_direct((leaf->p_next).oid);
+    #else
+        if ((next_leaf = leaf->p_next) == nullptr)
+            break;
+    #endif
+	    while (!next_leaf->Lock())
+	    {
+	    #ifdef backoff_sleep
+			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+		#elif defined(backoff_loop)
+			volatile long long sum= 0;
+	        for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+	    #endif
+	    }
+	    leaf->Unlock();
+	    leaf = next_leaf;
+	    for (i = 0; i < MAX_LEAF_SIZE; i++)
+	        if (leaf->bitmap.test(i))
+	            records.push_back(leaf->kv_pairs[i]);
     }
-    if (leaf && leaf->lock == 1)
+    if (leaf && leaf->lock)
         leaf->Unlock();
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
