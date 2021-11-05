@@ -412,8 +412,8 @@ retry:
     }
     i_ = 0;
     second = first;
-    if (root != first){ // debug
-    	printf("Root is not first\n");
+    if (root != first){ 
+    	// printf("Root is not first\n"); // debug
     	first->Unlock();
     	goto retry;
     }
