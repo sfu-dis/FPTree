@@ -701,7 +701,7 @@ bool FPtree::update(struct KV kv)
     LeafNode* reachedLeafNode;
     bool split;
     uint64_t prevPos;
-    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, ancestor, split)) == nullptr) 
+    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
 		return false;
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos == MAX_LEAF_SIZE) // key not found
