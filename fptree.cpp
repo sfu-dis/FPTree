@@ -462,7 +462,10 @@ retry:
     if (first != second && !split)
         first->Unlock();
     else
+    {
         ancestor = first;
+        ANCESTER = first; //debug
+    }
     return reinterpret_cast<LeafNode*> (second);
 }
 
@@ -561,6 +564,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         {
             cur = new InnerNode();
             cur->init(splitKey, reachedLeafNode, newLeafNode);
+            printf("New root: %p \n", cur); // debug
             root = cur;
         }
         else // need to retraverse & update parent
@@ -616,6 +620,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                     if (parent == root)
                     {
                         cur = new InnerNode(splitKey, parent, newInnerNode);
+                        printf("New root: %p \n", cur); // debug
                         root = cur;
                         break;
                     }
@@ -625,6 +630,9 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
             }
             if (!parent->lock) // debug
             	printf("Ancestor is not locked!\n");
+            if (ANCESTER != parent) // debug
+            	printf("Ancester: %p     last inner updated: %p\n", ANCESTER, parent);
+
         }
         newLeafNode->Unlock();
     }
@@ -733,6 +741,7 @@ bool FPtree::insert(struct KV kv)
                 D_RW(ListHead)->head = *dst; 
                 pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
                 root = (struct BaseNode *) pmemobj_direct((*dst).oid);
+                printf("First root: %p \n", root); // debug
             #else
                 auto new_root = new LeafNode();
                 new_root->addKV(kv);
