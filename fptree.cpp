@@ -772,6 +772,10 @@ bool FPtree::insert(struct KV kv)
 
     if (ancestor && ancestor != reachedLeafNode)
         ancestor->Unlock();
+    else if (ancestor->lock && ancestor->isInnerNode) //debug
+    {
+    	printf("WTF?\n");
+    }
     reachedLeafNode->Unlock();
     return true;
 }
