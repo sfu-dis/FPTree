@@ -392,11 +392,15 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode*& ancestor, 
     ancestor = nullptr;
     split = false;
     int idx;
+    int retries = 0; // debug
 retry:
     if (!root)
         return nullptr;
     if (!root->Lock())
     {
+    	retries ++; //debug
+    	if (retries == 10000000) // debug
+    		printf("Failed to acquire root in 10000000 tries!\n");
 	    #ifdef backoff_sleep
     		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
     	#elif defined(backoff_loop)
@@ -705,9 +709,9 @@ bool FPtree::insert(struct KV kv)
 {
     while (!root)  // if tree is empty
     {
-    	if (Lock())
+    	if (Lock()) // I can create new root
     	{
-    		if (root)
+    		if (root)	// check again
     		{
     			Unlock();
             	break;
