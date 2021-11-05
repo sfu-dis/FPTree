@@ -385,11 +385,11 @@ retry:
     return reinterpret_cast<LeafNode*> (second);
 }
 
-inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode*& ancestor, bool& split) 
+inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split) 
 {
     BaseNode* first;
     BaseNode* second;
-    ancestor = nullptr;
+    *ancestor = nullptr;
     split = false;
     int idx;
     int retries = 0; // debug
@@ -463,7 +463,7 @@ retry:
         first->Unlock();
     else
     {
-        ancestor = first;
+        *ancestor = first;
         ANCESTER = first; //debug
     }
     return reinterpret_cast<LeafNode*> (second);
@@ -756,7 +756,7 @@ bool FPtree::insert(struct KV kv)
     LeafNode* reachedLeafNode;
     bool split;
     uint64_t prevPos;
-    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, ancestor, split)) == nullptr) 
+    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
 		return false;
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos != MAX_LEAF_SIZE) // key already exists

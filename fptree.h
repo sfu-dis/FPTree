@@ -424,7 +424,7 @@ struct FPtree
     // return leaf that may contain key, does not push inner nodes
     LeafNode* findLeaf(uint64_t key);
 
-    LeafNode* findLeafAssumeSplit(uint64_t key, BaseNode*& ancestor, bool& split);
+    LeafNode* findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split);
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
