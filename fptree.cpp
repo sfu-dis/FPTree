@@ -394,13 +394,14 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, 
     int idx;
     int retries = 0; // debug
 retry:
-    if (!root)
+	first = root;
+    if (!first)
         return nullptr;
-    if (!root->Lock())
+    if (!first->Lock())
     {
     	retries ++; //debug
     	if (retries == 10000000) // debug
-    		printf("Failed to acquire root: %p in 10000000 tries!\n", root);
+    		printf("Failed to acquire root: %p in 10000000 tries!\n", first);
 	    #ifdef backoff_sleep
     		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
     	#elif defined(backoff_loop)
@@ -410,11 +411,10 @@ retry:
         goto retry;
     }
     i_ = 0;
-    first = root;
     second = first;
-    if (root->isInnerNode)
+    if (first->isInnerNode)
     {
-        inners[i_] = reinterpret_cast<InnerNode*> (root);
+        inners[i_] = reinterpret_cast<InnerNode*> (first);
         while(true)
         {
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
