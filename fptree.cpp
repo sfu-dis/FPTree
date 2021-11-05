@@ -24,12 +24,14 @@ uint64_t rdtsc(){
 BaseNode::BaseNode() 
 {
     this->isInnerNode = false;
+    this->lock.store(0, std::memory_order_acquire);
 }
 
 InnerNode::InnerNode()
 {
     this->isInnerNode = true;
     this->nKey = 0;
+    this->lock.store(0, std::memory_order_acquire);
 }
 
 InnerNode::InnerNode(uint64_t key, BaseNode* left, BaseNode* right)
@@ -39,6 +41,7 @@ InnerNode::InnerNode(uint64_t key, BaseNode* left, BaseNode* right)
     this->p_children[0] = left;
     this->p_children[1] = right;
     this->nKey = 1;
+    this->lock.store(0, std::memory_order_acquire);
 }
 
 void InnerNode::init(uint64_t key, BaseNode* left, BaseNode* right)
@@ -48,6 +51,7 @@ void InnerNode::init(uint64_t key, BaseNode* left, BaseNode* right)
     this->p_children[0] = left;
     this->p_children[1] = right;
     this->nKey = 1;
+    this->lock.store(0, std::memory_order_acquire);
 }
 
 InnerNode::InnerNode(const InnerNode& inner)
@@ -389,7 +393,6 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode*& ancestor, 
     split = false;
     int idx;
 retry:
-    i_ = 0;
     if (!root)
         return nullptr;
     if (!root->Lock())
@@ -402,6 +405,7 @@ retry:
         #endif
         goto retry;
     }
+    i_ = 0;
     first = root;
     second = first;
     if (root->isInnerNode)
@@ -559,9 +563,13 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
             //     cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
             // }
             parent = inners[--i_];
+            if (i_ < 0) // debug
+            	printf("stack underflow!\n");
             child = newLeafNode;
             while (true)
             {
+            	if (i_ < 0) // debug
+            		printf("stack underflow!\n");
                 insert_pos = ppos[i_--];
                 if (parent->nKey < MAX_INNER_SIZE)
                 {
@@ -602,7 +610,8 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                     child = newInnerNode;
                 }
             }
-            assert(parent->lock && "Ancestor is not locked!");
+            if (!parent->lock) // debug
+            	printf("Ancestor is not locked!\n");
         }
         newLeafNode->Unlock();
     }
@@ -719,7 +728,7 @@ bool FPtree::insert(struct KV kv)
             Unlock();
             return true;
     	}
-    	//back off?
+    	//backoff?
     }
     BaseNode* ancestor;
     LeafNode* reachedLeafNode;
