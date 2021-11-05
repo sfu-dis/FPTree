@@ -400,7 +400,7 @@ retry:
     {
     	retries ++; //debug
     	if (retries == 10000000) // debug
-    		printf("Failed to acquire root in 10000000 tries!\n");
+    		printf("Failed to acquire root: %p in 10000000 tries!\n", root);
 	    #ifdef backoff_sleep
     		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
     	#elif defined(backoff_loop)
@@ -420,8 +420,17 @@ retry:
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
+            retries = 0; // debug
             while (!second->Lock())
             {
+            	retries ++; //debug
+		    	if (retries == 10000000) // debug
+		    	{
+		    		if (second->isInnerNode)
+		    			printf("Failed to acquire inner node: %p in 10000000 tries!\n", second);
+		    		else
+		    			printf("Failed to acquire leaf node: %p in 10000000 tries!\n", second);
+		    	}
 	            #ifdef backoff_sleep
 		    		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
 		    	#elif defined(backoff_loop)
