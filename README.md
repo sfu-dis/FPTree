@@ -16,7 +16,7 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
 	* Modify the read/write retry from **10 to 256** in ***oneTBB/src/tbb/rtm_mutex.cpp*** and ***oneTBB/src/tbb/rtm_rw_mutex.cpp***<br/>
 	* `$ cd oneTBB & mkdir build & cd build & cmake -DCMAKE_BUILD_TYPE=Release .. & make -jN`<br/>
 	* Check that libtbb.so exists in *oneTBB/build/gnu_11.1_cxx11_64_release*<br/>
-    * Modify **CMakeLists.txt** to use custom TBB <br/>
+    * Modify **CMakeLists.txt** located in FPTree folder to use custom TBB <br/>
        * delete -ltbb flag in CMAKE_CXX_FLAGS which link to your default TBB built <br/>
        * add and modify them in the proper place in CMakeLists.txt
        ```
