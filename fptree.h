@@ -184,10 +184,28 @@ struct BaseNode
 {
     bool isInnerNode;
 
+    // 63b version 1b lock
+    // version 1, unlocked
+    std::atomic<uint64_t> versionLock{0b10};
+
     friend class FPtree;
 
  public:
     BaseNode();
+
+    bool isLocked(uint64_t version) const;
+
+    void readUnlockOrRestart(uint64_t startRead, bool &needRestart) const;
+
+    uint64_t readLockOrRestart(bool &needRestart) const;
+
+    void checkOrRestart(uint64_t startRead, bool &needRestart) const;
+
+    void writeLockOrRestart(bool &needRestart);
+
+    void writeUnlock();
+
+    void upgradeToWriteLockOrRestart(uint64_t &version, bool &needRestart);
 } __attribute__((aligned(64)));
 
 

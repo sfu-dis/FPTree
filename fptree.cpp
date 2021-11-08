@@ -20,6 +20,57 @@ BaseNode::BaseNode()
     this->isInnerNode = false;
 }
 
+bool BaseNode::isLocked(uint64_t version) const
+{
+    return ((version & 0b1) == 0b1);
+}
+
+uint64_t BaseNode::readLockOrRestart(bool &needRestart) const
+{
+    uint64_t version = this->versionLock.load();
+    if (isLocked(version)) 
+    {
+        needRestart = true;
+    }
+    return version;
+}
+
+void BaseNode::readUnlockOrRestart(uint64_t startRead, bool &needRestart) const
+{
+    // take version as an argument, make sure the lock is still free and 
+    //     that the version (returned by readUnlock) did not change
+    needRestart = (startRead != this->versionLock.load());
+}
+
+void BaseNode::checkOrRestart(uint64_t startRead, bool &needRestart) const
+{
+    readUnlockOrRestart(startRead, needRestart);
+}
+
+void BaseNode::writeLockOrRestart(bool &needRestart)
+{
+    uint64_t version = readLockOrRestart(needRestart);
+    if (needRestart) return;
+
+    upgradeToWriteLockOrRestart(version, needRestart);
+    if (needRestart) return;
+}
+
+void BaseNode::upgradeToWriteLockOrRestart(uint64_t &version, bool &needRestart)
+{
+    if (this->versionLock.compare_exchange_strong(version, version + 0b1))
+        version = version + 0b1;
+    else
+        needRestart = true;
+}
+
+void BaseNode::writeUnlock()
+{
+    // cause the version counter associated with the lock to be incremented
+    this->versionLock.fetch_add(0b1);
+}
+
+
 InnerNode::InnerNode()
 {
     this->isInnerNode = true;
