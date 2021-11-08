@@ -421,21 +421,52 @@ inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
 
 uint64_t FPtree::find(uint64_t key)
 {
+    if (!root)
+        return 0;
+
+restart:
+    bool needRestart = false;
+    uint64_t v;
+    
+    BaseNode* currentNode = nullptr;
+    BaseNode* parentNode = nullptr;
+
+    currentNode = root;
+    v = currentNode->readLockOrRestart(needRestart);
+    if (needRestart) goto restart;
+
     LeafNode* pLeafNode;
     volatile uint64_t idx;
-    tbb::speculative_spin_rw_mutex::scoped_lock lock_find;
     while (true)
     {
-        lock_find.acquire(speculative_lock, false);
-        if ((pLeafNode = findLeaf(key)) == nullptr) { lock_find.release(); break; }
-        if (pLeafNode->lock) { lock_find.release(); continue; }
-        idx = pLeafNode->findKVIndex(key);
-        lock_find.release();
-        return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+        parentNode = currentNode;
+        if (currentNode->isInnerNode)
+        {
+            currentNode = reinterpret_cast<BaseNode*> 
+                    (reinterpret_cast<InnerNode*> (currentNode)
+                    ->p_children[reinterpret_cast<InnerNode*> (currentNode)->findChildIndex(key)]); 
+        }
+        parentNode->checkOrRestart(v, needRestart);
+        if (needRestart) goto restart;
+
+        if (!currentNode->isInnerNode)
+        {
+            parentNode->readUnlockOrRestart(v, needRestart);
+            if (needRestart) goto restart;
+            pLeafNode = reinterpret_cast<LeafNode*> (currentNode);
+            idx = pLeafNode->findKVIndex(key);
+            return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
+        }
+
+        uint64_t nv = currentNode->readLockOrRestart(needRestart);
+        if (needRestart) goto restart;
+
+        parentNode->readUnlockOrRestart(v, needRestart);
+        if (needRestart) goto restart;
+        v = nv;
     }
     return 0;
 }
-
 
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result decision, struct KV kv, 
                                             bool updateFunc = false, uint64_t prevPos = MAX_LEAF_SIZE)
