@@ -237,6 +237,7 @@ struct InnerNode : BaseNode
     void addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_child_right);
 } __attribute__((aligned(64)));
 
+static thread_local uint64_t expected;
 
 struct LeafNode : BaseNode
 {
@@ -368,6 +369,7 @@ struct Stack //TODO: Get rid of Stack
 static thread_local Stack stack_innerNodes;
 static thread_local InnerNode* inners[32];
 static thread_local short ppos[32];
+static thread_local short i_;
 
 struct FPtree
 {
@@ -376,9 +378,22 @@ struct FPtree
 
     InnerNode* right_most_innnerNode; // for bulkload
 
+    std::atomic<uint64_t> lock_word;
+
  public:
     FPtree();
     ~FPtree();
+
+    bool lock()
+    {
+        expected = 0;
+        return std::atomic_compare_exchange_strong(&lock_word, &expected, 1);
+    }
+
+    void unlock()
+    {
+        this->lock_word = 0;
+    }
 
     BaseNode* getRoot () { return this->root; }
 
@@ -421,6 +436,8 @@ struct FPtree
  private:
     // return leaf that may contain key, does not push inner nodes
     LeafNode* findLeaf(uint64_t key);
+
+    LeafNode* findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split);
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);

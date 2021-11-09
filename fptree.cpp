@@ -426,46 +426,53 @@ uint64_t FPtree::find(uint64_t key)
 
 restart:
     bool needRestart = false;
-    uint64_t v;
+
+    uint64_t currentVersion;
+    uint64_t parentVersion;
     
     BaseNode* currentNode = nullptr;
     BaseNode* parentNode = nullptr;
 
     currentNode = root;
-    v = currentNode->readLockOrRestart(needRestart);
-    if (needRestart) goto restart;
+    currentVersion = currentNode->readLockOrRestart(needRestart);
+    if (needRestart || currentNode != root) goto restart;
 
     LeafNode* pLeafNode;
     volatile uint64_t idx;
-    while (true)
+    while (currentNode->isInnerNode)
     {
-        parentNode = currentNode;
-        if (currentNode->isInnerNode)
+        if (parentNode)
         {
-            currentNode = reinterpret_cast<BaseNode*> 
-                    (reinterpret_cast<InnerNode*> (currentNode)
-                    ->p_children[reinterpret_cast<InnerNode*> (currentNode)->findChildIndex(key)]); 
-        }
-        parentNode->checkOrRestart(v, needRestart);
-        if (needRestart) goto restart;
-
-        if (!currentNode->isInnerNode)
-        {
-            parentNode->readUnlockOrRestart(v, needRestart);
+            parentNode->readUnlockOrRestart(parentVersion, needRestart);
             if (needRestart) goto restart;
-            pLeafNode = reinterpret_cast<LeafNode*> (currentNode);
-            idx = pLeafNode->findKVIndex(key);
-            return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
         }
 
-        uint64_t nv = currentNode->readLockOrRestart(needRestart);
+        parentNode = currentNode;
+        parentVersion = currentVersion;
+
+        currentNode = reinterpret_cast<BaseNode*> 
+                (reinterpret_cast<InnerNode*> (currentNode)
+                ->p_children[reinterpret_cast<InnerNode*> (currentNode)->findChildIndex(key)]); 
+    
+        parentNode->checkOrRestart(currentVersion, needRestart);
         if (needRestart) goto restart;
 
-        parentNode->readUnlockOrRestart(v, needRestart);
+        currentVersion = currentNode->readLockOrRestart(needRestart);
         if (needRestart) goto restart;
-        v = nv;
     }
-    return 0;
+
+    pLeafNode = reinterpret_cast<LeafNode*> (currentNode);
+    idx = pLeafNode->findKVIndex(key);
+
+    if (parentNode)
+    {
+        parentNode->readUnlockOrRestart(parentVersion, needRestart);
+        if (needRestart) goto restart;
+    }
+    currentNode->readUnlockOrRestart(currentVersion, needRestart);
+    if (needRestart) goto restart;
+
+    return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
 }
 
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result decision, struct KV kv, 
@@ -684,14 +691,85 @@ bool FPtree::update(struct KV kv)
 }
 
 
+inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split) 
+{
+    return nullptr;
+//     BaseNode* first;
+//     BaseNode* second;
+//     int idx;
+
+// restart: 
+//     *ancestor = nullptr;
+//     split = false;
+//     bool needRestart = false;
+
+//     first = root;
+//     if (!first)
+//         return nullptr;
+//     auto v = first->readLockOrRestart(needRestart);
+//     if (needRestart) goto restart;
+
+//     i_ = 0;
+//     second = first;
+    
+//     if (root != first)
+//         goto restart;
+    
+//     if (first->isInnerNode)
+//     {
+//         inners[i_] = reinterpret_cast<InnerNode*> (first);
+//         while (true)
+//         {
+//             // find next child 
+//             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
+//             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
+//             ppos[i_++] = idx;
+
+//             // check parent changed or not 
+//             first->checkOrRestart(v, needRestart);
+//             if (needRestart) goto restart;
+
+//             if (second->isInnerNode)
+//             {
+//                 inners[i_] = reinterpret_cast<InnerNode*> (second);
+//                 if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
+//                 {
+//                     uint64_t nextVersion = second->readLockOrRestart(needRestart);
+//                     if (needRestart) goto restart;
+
+//                     first->readUnlockOrRestart(v, needRestart);
+//                     if (needRestart) goto restart;
+//                     v = nextVersion;
+
+//                     first = second;
+//                 }
+//                 else // inner full, keep going without lock
+//                 {
+                    
+//                 }
+//             }
+//             else // second is leaf node
+//             {
+//                 break;
+//             }
+//         }
+//     }
+    
+}
+
+
 bool FPtree::insert(struct KV kv) 
 {
     tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
-    if (!root)  // if tree is empty
+    while (!root)  // if tree is empty
     {
-        lock_insert.acquire(speculative_lock, true);
-        if (!root)
+        if (lock()) 
         {
+            if (root)	// check again
+            {
+                unlock();
+                break;
+            }
             #ifdef PMEM
                 struct argLeafNode args(kv);
                 TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
@@ -701,15 +779,13 @@ bool FPtree::insert(struct KV kv)
                 pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
                 root = (struct BaseNode *) pmemobj_direct((*dst).oid);
             #else
-                root = new LeafNode();
-                reinterpret_cast<LeafNode*>(root)->lock = 1;
-                reinterpret_cast<LeafNode*> (root)->addKV(kv);
-                reinterpret_cast<LeafNode*>(root)->lock = 0;
+                auto new_root = new LeafNode();
+                new_root->addKV(kv);
+                root = new_root;
             #endif
-            lock_insert.release();
+            unlock();
             return true;
         }
-        lock_insert.release();
     }
 
     Result decision = Result::Abort;
