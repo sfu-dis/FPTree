@@ -475,6 +475,7 @@ restart:
     return (idx != MAX_LEAF_SIZE ? pLeafNode->kv_pairs[idx].value : 0 );
 }
 
+
 void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result decision, struct KV kv, 
                                             bool updateFunc = false, uint64_t prevPos = MAX_LEAF_SIZE)
 {
@@ -527,31 +528,19 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
     #else
         newLeafNode = reachedLeafNode->p_next;
     #endif
-        tbb::speculative_spin_rw_mutex::scoped_lock lock_split;
         uint64_t mid = MAX_INNER_SIZE / 2, new_splitKey, insert_pos;
         InnerNode* cur, *parent, *newInnerNode;
         BaseNode* child;
         short i = 0, idx;
         /*---------------- Second Critical Section -----------------*/
-        lock_split.acquire(speculative_lock);
         if (!root->isInnerNode) // splitting when tree has only root 
         {
             cur = new InnerNode();
             cur->init(splitKey, reachedLeafNode, newLeafNode);
             root = cur;
         }
-        else // need to retraverse & update parent
+        else 
         {
-            cur = reinterpret_cast<InnerNode*> (root);
-            while(cur->isInnerNode)
-            {
-                inners[i] = cur;
-                idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
-                if (idx < cur->nKey && cur->keys[idx] == kv.key) // TODO: this should always be false
-                    idx ++;
-                ppos[i++] = idx;
-                cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
-            }
             parent = inners[--i];
             child = newLeafNode;
             while (true)
@@ -597,8 +586,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                 }
             }
         }
-        newLeafNode->Unlock();
-        lock_split.release();
+        newLeafNode->writeUnlock();
         /*---------------- End of Second Critical Section -----------------*/
     }
 }
@@ -690,77 +678,87 @@ bool FPtree::update(struct KV kv)
     return true;
 }
 
-
-inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split) 
+inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split)
 {
-    return nullptr;
-//     BaseNode* first;
-//     BaseNode* second;
-//     int idx;
 
-// restart: 
-//     *ancestor = nullptr;
-//     split = false;
-//     bool needRestart = false;
+restart:
+    bool needRestart = false;
+    BaseNode* first;
+    BaseNode* second;
+    *ancestor = nullptr;
+    split = false;
+    int idx;
 
-//     first = root;
-//     if (!first)
-//         return nullptr;
-//     auto v = first->readLockOrRestart(needRestart);
-//     if (needRestart) goto restart;
+    i_ = 0;
 
-//     i_ = 0;
-//     second = first;
+    uint64_t versionFirst;
+    uint64_t versionSecond;
+
+    first = root;
+    versionFirst = first->readLockOrRestart(needRestart);
+    if (needRestart || (first != root)) goto restart;
+
+    first->upgradeToWriteLockOrRestart(versionFirst, needRestart);
+    if (needRestart) goto restart;
     
-//     if (root != first)
-//         goto restart;
-    
-//     if (first->isInnerNode)
-//     {
-//         inners[i_] = reinterpret_cast<InnerNode*> (first);
-//         while (true)
-//         {
-//             // find next child 
-//             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
-//             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
-//             ppos[i_++] = idx;
+    second = first;
+    versionSecond = versionFirst;
 
-//             // check parent changed or not 
-//             first->checkOrRestart(v, needRestart);
-//             if (needRestart) goto restart;
+    if (first->isInnerNode)
+    {
+        inners[i_] = reinterpret_cast<InnerNode*> (first);
+        while (true)
+        {
+            idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
+            second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
+            ppos[i_++] = idx;
 
-//             if (second->isInnerNode)
-//             {
-//                 inners[i_] = reinterpret_cast<InnerNode*> (second);
-//                 if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
-//                 {
-//                     uint64_t nextVersion = second->readLockOrRestart(needRestart);
-//                     if (needRestart) goto restart;
+            first->checkOrRestart(versionFirst, needRestart);
+            if (needRestart) 
+            {
+                first->writeUnlock();
+                goto restart;
+            }
+            versionSecond = second->readLockOrRestart(needRestart);
+            if (needRestart) goto restart; 
+            second->upgradeToWriteLockOrRestart(versionSecond, needRestart);
+            if (needRestart) goto restart;
+        
+            if (second->isInnerNode)
+            {
+                inners[i_] = reinterpret_cast<InnerNode*> (second);
+                if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
+                {
+                    first->writeUnlock();
+                    first = second;
+                    versionFirst = versionSecond;
+                }
+                else // inner full, keep going without lock
+                {
+                    second->writeUnlock();
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
 
-//                     first->readUnlockOrRestart(v, needRestart);
-//                     if (needRestart) goto restart;
-//                     v = nextVersion;
+    if ((reinterpret_cast<LeafNode*> (second))->isFull())
+        split = true;
+    if (first != second && !split)
+        first->writeUnlock();
+    else
+        *ancestor = first;
 
-//                     first = second;
-//                 }
-//                 else // inner full, keep going without lock
-//                 {
-                    
-//                 }
-//             }
-//             else // second is leaf node
-//             {
-//                 break;
-//             }
-//         }
-//     }
-    
+    return reinterpret_cast<LeafNode*> (second);
 }
 
 
 bool FPtree::insert(struct KV kv) 
 {
-    tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
+    // tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
     while (!root)  // if tree is empty
     {
         if (lock()) 
@@ -788,36 +786,27 @@ bool FPtree::insert(struct KV kv)
         }
     }
 
-    Result decision = Result::Abort;
-    InnerNode* cursor;
+    BaseNode* ancestor;
     LeafNode* reachedLeafNode;
-    uint64_t nKey;
-    int idx;
-    /*---------------- First Critical Section -----------------*/
+    bool split;
+    uint64_t prevPos;
+    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
+		return false;
+    prevPos = reachedLeafNode->findKVIndex(kv.key);
+    if (prevPos != MAX_LEAF_SIZE) // key already exists
     {
-    TBB_BEGIN:
-        lock_insert.acquire(speculative_lock, false);
-        reachedLeafNode = findLeaf(kv.key);
-        if (!reachedLeafNode->Lock()) 
-        { 
-            lock_insert.release(); 
-            goto TBB_BEGIN;
-        }
-        idx = reachedLeafNode->findKVIndex(kv.key);
-        if (idx != MAX_LEAF_SIZE)
-            reachedLeafNode->Unlock();
-        else
-            decision = reachedLeafNode->isFull() ? Result::Split : Result::Insert;
-        lock_insert.release();
-    }
-    /*---------------- End of First Critical Section -----------------*/
-
-    if (decision == Result::Abort)  // kv already exists
+        if (ancestor && ancestor != reachedLeafNode)
+            ancestor->writeUnlock();
+        reachedLeafNode->writeUnlock();
         return false;
+    }
+    Result decision = split ? Result::Split : Result::Update;
 
     splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv);
 
-    reachedLeafNode->Unlock();
+    if (ancestor && ancestor != reachedLeafNode)
+        ancestor->writeUnlock();
+    reachedLeafNode->writeUnlock();
     
     return true;
 }
