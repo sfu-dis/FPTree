@@ -20,12 +20,12 @@ BaseNode::BaseNode()
     this->isInnerNode = false;
 }
 
-bool BaseNode::isLocked(uint64_t version) const
+bool BaseNode::isLocked(uint64_t version)
 {
     return ((version & 0b1) == 0b1);
 }
 
-uint64_t BaseNode::readLockOrRestart(bool &needRestart) const
+uint64_t BaseNode::readLockOrRestart(bool &needRestart)
 {
     uint64_t version = this->versionLock.load();
     if (isLocked(version)) 
@@ -35,14 +35,14 @@ uint64_t BaseNode::readLockOrRestart(bool &needRestart) const
     return version;
 }
 
-void BaseNode::readUnlockOrRestart(uint64_t startRead, bool &needRestart) const
+void BaseNode::readUnlockOrRestart(uint64_t startRead, bool &needRestart) 
 {
     // take version as an argument, make sure the lock is still free and 
     //     that the version (returned by readUnlock) did not change
     needRestart = (startRead != this->versionLock.load());
 }
 
-void BaseNode::checkOrRestart(uint64_t startRead, bool &needRestart) const
+void BaseNode::checkOrRestart(uint64_t startRead, bool &needRestart) 
 {
     readUnlockOrRestart(startRead, needRestart);
 }
@@ -67,7 +67,9 @@ void BaseNode::upgradeToWriteLockOrRestart(uint64_t &version, bool &needRestart)
 void BaseNode::writeUnlock()
 {
     // cause the version counter associated with the lock to be incremented
-    this->versionLock.fetch_add(0b1);
+    this->versionLock.fetch_add(0b10);
+    this->versionLock = this->versionLock >> 1;
+    this->versionLock = this->versionLock << 1;
 }
 
 
@@ -423,9 +425,10 @@ uint64_t FPtree::find(uint64_t key)
 {
     if (!root)
         return 0;
-
 restart:
     bool needRestart = false;
+    // if (restartCounter++ > 10)
+    //     return 0;
 
     uint64_t currentVersion;
     uint64_t parentVersion;
@@ -441,8 +444,10 @@ restart:
     volatile uint64_t idx;
     while (currentNode->isInnerNode)
     {
+        // std::cout << ( (currentNode->versionLock & 0b1) == 0b1) << std::endl;
         if (parentNode)
         {
+            // std::cout << (parentNode->versionLock & 0b1) << std::endl;
             parentNode->readUnlockOrRestart(parentVersion, needRestart);
             if (needRestart) goto restart;
         }
@@ -450,12 +455,13 @@ restart:
         parentNode = currentNode;
         parentVersion = currentVersion;
 
-        currentNode = reinterpret_cast<BaseNode*> 
-                (reinterpret_cast<InnerNode*> (currentNode)
-                ->p_children[reinterpret_cast<InnerNode*> (currentNode)->findChildIndex(key)]); 
+        idx = (reinterpret_cast<InnerNode*> (currentNode))->findChildIndex(key);
+        currentNode = (reinterpret_cast<InnerNode*> (currentNode))->p_children[idx];
     
         parentNode->checkOrRestart(currentVersion, needRestart);
         if (needRestart) goto restart;
+
+        // std::cout << ( (currentNode->versionLock & 0b1) == 0b1) << std::endl;
 
         currentVersion = currentNode->readLockOrRestart(needRestart);
         if (needRestart) goto restart;
@@ -531,7 +537,6 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         uint64_t mid = MAX_INNER_SIZE / 2, new_splitKey, insert_pos;
         InnerNode* cur, *parent, *newInnerNode;
         BaseNode* child;
-        short i = 0, idx;
         /*---------------- Second Critical Section -----------------*/
         if (!root->isInnerNode) // splitting when tree has only root 
         {
@@ -539,13 +544,13 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
             cur->init(splitKey, reachedLeafNode, newLeafNode);
             root = cur;
         }
-        else 
+        else
         {
-            parent = inners[--i];
+            parent = inners[--i_];
             child = newLeafNode;
             while (true)
             {
-                insert_pos = ppos[i--];
+                insert_pos = ppos[i_--];
                 if (parent->nKey < MAX_INNER_SIZE)
                 {
                     parent->addKey(insert_pos, splitKey, child);
@@ -581,7 +586,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
                         root = cur;
                         break;
                     }
-                    parent = inners[i];
+                    parent = inners[i_];
                     child = newInnerNode;
                 }
             }
@@ -656,7 +661,6 @@ bool FPtree::update(struct KV kv)
     volatile Result decision = Result::Abort;
     while (decision == Result::Abort)
     {
-        // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         lock_update.acquire(speculative_lock, false);
         if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) { lock_update.release(); return false; }
         if (!reachedLeafNode->Lock()) { lock_update.release(); continue; }
@@ -682,6 +686,8 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, 
 {
 
 restart:
+    // if (restartCounter++ > 10)
+    //     return 0;
     bool needRestart = false;
     BaseNode* first;
     BaseNode* second;
@@ -694,9 +700,13 @@ restart:
     uint64_t versionFirst;
     uint64_t versionSecond;
 
+    // std::cout << "restart; \n"; 
+
     first = root;
     versionFirst = first->readLockOrRestart(needRestart);
     if (needRestart || (first != root)) goto restart;
+
+    // std::cout << "first = root; \n"; 
 
     first->upgradeToWriteLockOrRestart(versionFirst, needRestart);
     if (needRestart) goto restart;
@@ -712,20 +722,34 @@ restart:
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
+            // std::cout << "idx: " << idx << std::endl;
+            // std::cout << "second: " << reinterpret_cast<LeafNode*> (second)->kv_pairs[0].key << std::endl;
 
             first->checkOrRestart(versionFirst, needRestart);
+            // std::cout << "first->checkOrRestart: \n";
             if (needRestart) 
             {
                 first->writeUnlock();
                 goto restart;
             }
             versionSecond = second->readLockOrRestart(needRestart);
-            if (needRestart) goto restart; 
+            if (needRestart)
+            {
+                first->writeUnlock();
+                goto restart; 
+            } 
             second->upgradeToWriteLockOrRestart(versionSecond, needRestart);
-            if (needRestart) goto restart;
+            if (needRestart)
+            {
+                first->writeUnlock();
+                goto restart; 
+            } 
+
+            // std::cout << "endCheck: \n";
         
             if (second->isInnerNode)
             {
+                // std::cout << "second->isInnerNode; \n";
                 inners[i_] = reinterpret_cast<InnerNode*> (second);
                 if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
                 {
@@ -758,7 +782,7 @@ restart:
 
 bool FPtree::insert(struct KV kv) 
 {
-    // tbb::speculative_spin_rw_mutex::scoped_lock lock_insert;
+    // std::cout << "key: " << kv.key << std::endl; 
     while (!root)  // if tree is empty
     {
         if (lock()) 
@@ -791,7 +815,7 @@ bool FPtree::insert(struct KV kv)
     bool split;
     uint64_t prevPos;
     if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
-		return false;
+        return false;
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos != MAX_LEAF_SIZE) // key already exists
     {
@@ -802,7 +826,11 @@ bool FPtree::insert(struct KV kv)
     }
     Result decision = split ? Result::Split : Result::Update;
 
+    // std::cout << "before split: \n";
+
     splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv);
+
+    // std::cout << "end split: \n";
 
     if (ancestor && ancestor != reachedLeafNode)
         ancestor->writeUnlock();
@@ -1452,11 +1480,12 @@ uint64_t rdtsc(){
             else
             {
                 // fptree.insert(kv);
-                if (!fptree.getRoot())
-                    for (size_t i = 0; i < 100; i++)
-                        fptree.insert(KV(rand() % 100 + 2, 1));
-                else
-                    fptree.insert(kv);
+                // if (!fptree.getRoot())
+                //     for (size_t i = 0; i < 100; i++)
+                //         fptree.insert(KV(rand() % 100 + 2, 1));
+                // else
+                std::cout << "main key: " << kv.key << std::endl;
+                fptree.insert(kv);
             }
             // fptree.printFPTree("├──", fptree.getRoot());
             #ifdef PMEM

@@ -193,13 +193,13 @@ struct BaseNode
  public:
     BaseNode();
 
-    bool isLocked(uint64_t version) const;
+    bool isLocked(uint64_t version) ;
 
-    void readUnlockOrRestart(uint64_t startRead, bool &needRestart) const;
+    void readUnlockOrRestart(uint64_t startRead, bool &needRestart) ;
 
-    uint64_t readLockOrRestart(bool &needRestart) const;
+    uint64_t readLockOrRestart(bool &needRestart) ;
 
-    void checkOrRestart(uint64_t startRead, bool &needRestart) const;
+    void checkOrRestart(uint64_t startRead, bool &needRestart) ;
 
     void writeLockOrRestart(bool &needRestart);
 
@@ -370,6 +370,7 @@ static thread_local Stack stack_innerNodes;
 static thread_local InnerNode* inners[32];
 static thread_local short ppos[32];
 static thread_local short i_;
+static thread_local uint64_t restartCounter = 0;
 
 struct FPtree
 {
@@ -378,7 +379,7 @@ struct FPtree
 
     InnerNode* right_most_innnerNode; // for bulkload
 
-    std::atomic<uint64_t> lock_word;
+    std::atomic<uint64_t> lock_word = 0;
 
  public:
     FPtree();
