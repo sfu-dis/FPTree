@@ -14,6 +14,7 @@
 class fptree_wrapper : public tree_api
 {
 public:
+    uint64_t count = 0;
     fptree_wrapper();
     virtual ~fptree_wrapper();
     
@@ -34,6 +35,7 @@ fptree_wrapper::fptree_wrapper()
 
 fptree_wrapper::~fptree_wrapper()
 {
+    // tree_.printFPTree("├──", tree_.getRoot());
 }
 
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
@@ -57,8 +59,10 @@ bool fptree_wrapper::insert(const char* key, size_t key_sz, const char* value, s
     KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
     if (!tree_.insert(kv))
     {
+        count++;
 #ifdef DEBUG_MSG
-        printf("Insert failed\n");
+        // printf("Insert failed\n");
+        std::cout << "Insert failed: " << count << std::endl;
 #endif
         return false;
     }

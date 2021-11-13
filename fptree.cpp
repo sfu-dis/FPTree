@@ -58,8 +58,8 @@ void BaseNode::writeLockOrRestart(bool &needRestart)
 
 void BaseNode::upgradeToWriteLockOrRestart(uint64_t &version, bool &needRestart)
 {
-    if (this->versionLock.compare_exchange_strong(version, version + 0b1))
-        version = version + 0b1;
+    if (this->versionLock.compare_exchange_strong(version, version | 0b1))
+        version = version | 0b1;
     else
         needRestart = true;
 }
@@ -68,8 +68,7 @@ void BaseNode::writeUnlock()
 {
     // cause the version counter associated with the lock to be incremented
     this->versionLock.fetch_add(0b10);
-    this->versionLock = this->versionLock >> 1;
-    this->versionLock = this->versionLock << 1;
+    this->versionLock = this->versionLock & 0xfffffffffffffffe;
 }
 
 
@@ -684,10 +683,8 @@ bool FPtree::update(struct KV kv)
 
 inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split)
 {
-
+    uint64_t restartCounter = 0;
 restart:
-    // if (restartCounter++ > 10)
-    //     return 0;
     bool needRestart = false;
     BaseNode* first;
     BaseNode* second;
@@ -700,16 +697,22 @@ restart:
     uint64_t versionFirst;
     uint64_t versionSecond;
 
-    // std::cout << "restart; \n"; 
-
     first = root;
     versionFirst = first->readLockOrRestart(needRestart);
-    if (needRestart || (first != root)) goto restart;
-
-    // std::cout << "first = root; \n"; 
+    if (needRestart || (first != root))
+    {
+        if (restartCounter++ == 10000000)
+            printf("Failed to acquire root: %p in 10000000 tries!\n", first);
+        goto restart;
+    } 
 
     first->upgradeToWriteLockOrRestart(versionFirst, needRestart);
-    if (needRestart) goto restart;
+    if (needRestart)
+    {
+        if (restartCounter++ == 10000000)
+            printf("Root is not first");
+        goto restart;
+    } 
     
     second = first;
     versionSecond = versionFirst;
@@ -722,34 +725,34 @@ restart:
             idx = (reinterpret_cast<InnerNode*> (second))->findChildIndex(key);
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
-            // std::cout << "idx: " << idx << std::endl;
-            // std::cout << "second: " << reinterpret_cast<LeafNode*> (second)->kv_pairs[0].key << std::endl;
-
+ 
             first->checkOrRestart(versionFirst, needRestart);
-            // std::cout << "first->checkOrRestart: \n";
             if (needRestart) 
             {
+                if (restartCounter++ == 10000000)
+                    printf("Failed checkOrRestart: %p in 10000000 tries!\n", first);
                 first->writeUnlock();
                 goto restart;
             }
             versionSecond = second->readLockOrRestart(needRestart);
             if (needRestart)
             {
+                if (restartCounter++ == 10000000)
+                    printf("Failed second->readLockOrRestart: %p in 10000000 tries!\n", first);
                 first->writeUnlock();
                 goto restart; 
             } 
             second->upgradeToWriteLockOrRestart(versionSecond, needRestart);
             if (needRestart)
             {
+                if (restartCounter++ == 10000000)
+                    printf("Failed second->upgradeToWriteLockOrRestart: %p in 10000000 tries!\n", first);
                 first->writeUnlock();
                 goto restart; 
             } 
-
-            // std::cout << "endCheck: \n";
         
             if (second->isInnerNode)
             {
-                // std::cout << "second->isInnerNode; \n";
                 inners[i_] = reinterpret_cast<InnerNode*> (second);
                 if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
                 {
@@ -1480,12 +1483,12 @@ uint64_t rdtsc(){
             else
             {
                 // fptree.insert(kv);
-                // if (!fptree.getRoot())
-                //     for (size_t i = 0; i < 100; i++)
-                //         fptree.insert(KV(rand() % 100 + 2, 1));
-                // else
-                std::cout << "main key: " << kv.key << std::endl;
-                fptree.insert(kv);
+                if (!fptree.getRoot())
+                    for (size_t i = 0; i < 100; i++)
+                        fptree.insert(KV(rand() % 100 + 2, 1));
+                else
+                // std::cout << "main key: " << kv.key << std::endl;
+                    fptree.insert(kv);
             }
             // fptree.printFPTree("├──", fptree.getRoot());
             #ifdef PMEM

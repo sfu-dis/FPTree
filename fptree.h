@@ -370,7 +370,7 @@ static thread_local Stack stack_innerNodes;
 static thread_local InnerNode* inners[32];
 static thread_local short ppos[32];
 static thread_local short i_;
-static thread_local uint64_t restartCounter = 0;
+// static thread_local uint64_t restartCounter = 0;
 
 struct FPtree
 {
