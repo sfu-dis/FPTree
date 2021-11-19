@@ -195,6 +195,8 @@ struct BaseNode
 
     bool isLocked(uint64_t version) ;
 
+    bool isLocked() ;
+
     void readUnlockOrRestart(uint64_t startRead, bool &needRestart) ;
 
     uint64_t readLockOrRestart(bool &needRestart) ;
@@ -439,6 +441,7 @@ struct FPtree
     LeafNode* findLeaf(uint64_t key);
 
     LeafNode* findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split);
+    LeafNode* findLeafAndLock(uint64_t key);
 
     // return leaf that may contain key, push all innernodes on traversal path into stack
     LeafNode* findLeafAndPushInnerNodes(uint64_t key);
