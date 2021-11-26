@@ -172,8 +172,44 @@ inline void LeafNode::addKV(struct KV kv)
     this->bitmap.set(idx);
 }
 
+
 inline uint64_t LeafNode::findKVIndex(uint64_t key)
 {
+#ifdef AVX512
+
+    size_t key_hash = getOneByteHash(key);
+
+    #ifdef PMEM
+        __attribute__((aligned(64))) uint8_t tmp_fingerprints[MAX_LEAF_SIZE];
+        memcpy(tmp_fingerprints, this->fingerprints, sizeof(this->fingerprints));
+    #endif
+
+    __m512i key_64B = _mm512_set1_epi8((char)key_hash);
+
+    // b. load meta into another 16B register
+    #ifdef PMEM
+        __m512i fgpt_64B= _mm512_load_si512((__m512i*)tmp_fingerprints);
+    #else
+        __m512i fgpt_64B= _mm512_load_si512((__m512i*)this->fingerprints);
+    #endif
+
+    // c. compare them
+    uint64_t mask = uint64_t(_mm512_cmpeq_epi8_mask(key_64B, fgpt_64B));
+
+    mask &= offset;
+
+    size_t counter = 0;
+    while (mask != 0) 
+    {
+        if (mask & 1 && this->bitmap.test(counter) && key == this->kv_pairs[counter].key) 
+            return counter;
+        mask >>= 1;
+        counter ++;
+    }
+    return MAX_LEAF_SIZE;
+
+#else
+
     size_t key_hash = getOneByteHash(key);
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
     {
@@ -185,7 +221,11 @@ inline uint64_t LeafNode::findKVIndex(uint64_t key)
         }
     }
     return MAX_LEAF_SIZE;
+
+#endif
 }
+
+
 
 uint64_t LeafNode::minKey()
 {
@@ -720,6 +760,7 @@ bool FPtree::update(struct KV kv)
 
     reachedLeafNode = findLeafAndLock(kv.key);
 
+restartFullTraverse:
     if (reachedLeafNode->isFull()) // node is full 
     {
         reachedLeafNode->writeUnlock();
@@ -743,6 +784,10 @@ bool FPtree::update(struct KV kv)
     }
     else
     {
+        if (reachedLeafNode->isFull()) // check full again
+        {
+            goto restartFullTraverse;
+        }
         splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
         reachedLeafNode->writeUnlock();
     }
@@ -909,6 +954,7 @@ bool FPtree::insert(struct KV kv)
 
     reachedLeafNode = findLeafAndLock(kv.key);
 
+restartFullTraverse:
     if (reachedLeafNode->isFull()) // node is full 
     {
         reachedLeafNode->writeUnlock();
@@ -932,6 +978,10 @@ bool FPtree::insert(struct KV kv)
     }
     else // the node has been locked 
     {   
+        if (reachedLeafNode->isFull()) // check full again
+        {
+            goto restartFullTraverse;
+        }
         splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Insert, kv);
         reachedLeafNode->writeUnlock();
     }

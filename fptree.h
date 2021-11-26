@@ -39,6 +39,8 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
+// #define AVX512
+
 #ifdef TEST_MODE
     #define MAX_INNER_SIZE 3
     #define MAX_LEAF_SIZE 4
