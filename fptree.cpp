@@ -347,7 +347,7 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
-    BaseNode root_snapshot;
+    BaseNode* root_snapshot;
 	InnerNode* first;
 	BaseNode* second;
 retry:
@@ -369,7 +369,7 @@ retry:
 
     first = reinterpret_cast<InnerNode*> (root_snapshot);
     second = first;
-    
+
     if (root_snapshot != root){ 
         // printf("Root changed\n"); // debug
         root_snapshot->Unlock();
