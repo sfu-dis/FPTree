@@ -694,7 +694,7 @@ bool FPtree::update(struct KV kv)
 
     if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) // leaf not found
     	return false;
-	prevPos = reachedLeafNode->findKVIndex(key);
+	prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos == MAX_LEAF_SIZE) // key not found
 	{
 		reachedLeafNode->Unlock();
@@ -766,7 +766,7 @@ bool FPtree::insert(struct KV kv)
 
    if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) // leaf not found
     	return false;
-	prevPos = reachedLeafNode->findKVIndex(key);
+	prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos != MAX_LEAF_SIZE) // key already exists
 	{
 		reachedLeafNode->Unlock();
