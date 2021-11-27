@@ -347,12 +347,14 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
+    BaseNode root_snapshot;
 	InnerNode* first;
 	BaseNode* second;
 retry:
-    if (!root)
+    root_snapshot = root;
+    if (!root_snapshot)
         return nullptr;
-    if (!root->Lock())
+    if (!root_snapshot->Lock())
     {
 	#ifdef backoff_sleep
 		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
@@ -362,11 +364,18 @@ retry:
     #endif
         goto retry;
     }
-    if (!root->isInnerNode)
+    if (!root_snapshot->isInnerNode)
     	return reinterpret_cast<LeafNode*> (root);
 
-    first = reinterpret_cast<InnerNode*> (root);
+    first = reinterpret_cast<InnerNode*> (root_snapshot);
     second = first;
+    
+    if (root_snapshot != root){ 
+        // printf("Root changed\n"); // debug
+        root_snapshot->Unlock();
+        goto retry;
+    }
+    
     while(second->isInnerNode)
     {
     	second = first->p_children[first->findChildIndex(key)];
