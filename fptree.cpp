@@ -691,6 +691,23 @@ bool FPtree::update(struct KV kv)
     LeafNode* reachedLeafNode;
     bool split;
     uint64_t prevPos;
+
+    if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) // leaf not found
+    	return false;
+	prevPos = reachedLeafNode->findKVIndex(key);
+    if (prevPos == MAX_LEAF_SIZE) // key not found
+	{
+		reachedLeafNode->Unlock();
+		return false;
+	}
+	if (!reachedLeafNode->isFull()) // no split needed during update
+	{
+		splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
+		reachedLeafNode->Unlock();
+		return true;
+	}
+	reachedLeafNode->Unlock();
+
     if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
 		return false;
     prevPos = reachedLeafNode->findKVIndex(kv.key);
@@ -746,6 +763,23 @@ bool FPtree::insert(struct KV kv)
     LeafNode* reachedLeafNode;
     bool split;
     uint64_t prevPos;
+
+   if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) // leaf not found
+    	return false;
+	prevPos = reachedLeafNode->findKVIndex(key);
+    if (prevPos != MAX_LEAF_SIZE) // key already exists
+	{
+		reachedLeafNode->Unlock();
+		return false;
+	}
+	if (!reachedLeafNode->isFull()) // no split needed during insert
+	{
+		splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
+		reachedLeafNode->Unlock();
+		return true;
+	}
+	reachedLeafNode->Unlock();
+
     if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
 		return false;
     prevPos = reachedLeafNode->findKVIndex(kv.key);
