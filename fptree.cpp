@@ -367,16 +367,16 @@ retry:
         #endif
         goto retry;
     }
-    if (!root_snapshot->isInnerNode) // root is leaf
-    	return reinterpret_cast<LeafNode*> (root_snapshot);
-
-    first = reinterpret_cast<InnerNode*> (root_snapshot);
-    second = first;
     if (root_snapshot != root){ 
         // printf("Root is not first\n"); // debug
         root_snapshot->SUnlock();
         goto retry;
     }
+    if (!root_snapshot->isInnerNode) // root is leaf
+    	return reinterpret_cast<LeafNode*> (root_snapshot);
+
+    first = reinterpret_cast<InnerNode*> (root_snapshot);
+    second = first;
     while(second->isInnerNode)
     {
     	second = first->p_children[first->findChildIndex(key)];

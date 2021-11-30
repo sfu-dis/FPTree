@@ -225,20 +225,41 @@ struct BaseNode
                 break;
         }
         while (lock != xlock) {
-            #ifdef backoff_sleep
-                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-            #elif defined(backoff_loop)
-                volatile long long sum= 0;
-                for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-            #endif
+            // #ifdef backoff_sleep
+            //     std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            // #elif defined(backoff_loop)
+            //     volatile long long sum= 0;
+            //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+            // #endif
         }
         return true;
     }
 
     bool UpgradeLock()
     {
-        lock --;
-        return XLock();
+        while (true)
+        {
+            expected = lock;
+            if (expected & xlock)
+            {
+                lock --;
+                return false;
+            }
+            if (std::atomic_compare_exchange_strong(&lock, &expected, expected | xlock))
+            {
+                lock --;
+                break;
+            }
+        }
+        while (lock != xlock) {
+            // #ifdef backoff_sleep
+            //     std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            // #elif defined(backoff_loop)
+            //     volatile long long sum= 0;
+            //     for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+            // #endif
+        }
+        return true;
     }
 
     void SUnlock()
