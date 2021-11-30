@@ -60,7 +60,7 @@
 #endif
 
 static const uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
-static const uint64_t xlock = 1 << 63;
+static const uint64_t xlock = (uint64_t)1 << 63;
 
 enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
@@ -316,6 +316,14 @@ struct LeafNode : BaseNode
         KV kv_pairs[MAX_LEAF_SIZE];
         uint64_t lock;
 
+        argLeafNode()
+        {
+            isInnerNode = false;
+            size = sizeof(struct LeafNode);
+            bitmap.set(0);
+            lock = 0;
+        }
+
         argLeafNode(LeafNode* leaf)
         {
             isInnerNode = false;
@@ -332,14 +340,6 @@ struct LeafNode : BaseNode
             size = sizeof(struct LeafNode);
             kv_pairs[0] = kv;
             fingerprints[0] = getOneByteHash(kv.key);
-            bitmap.set(0);
-            lock = 0;
-        }
-
-        argLeafNode()
-        {
-            isInnerNode = false;
-            size = sizeof(struct LeafNode);
             bitmap.set(0);
             lock = 0;
         }
@@ -402,7 +402,7 @@ static thread_local short i_;
 struct FPtree
 {
     BaseNode *root;
-    tbb::speculative_spin_rw_mutex speculative_lock;
+    // tbb::speculative_spin_rw_mutex speculative_lock;
 
    	// std::atomic<uint64_t> lock;
 

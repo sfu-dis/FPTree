@@ -260,7 +260,7 @@ FPtree::FPtree()
     #endif
 
     #ifdef PMEM
-        struct argLeafNode args();
+        struct argLeafNode args;
         TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
         TOID(struct LeafNode) *dst = &D_RW(ListHead)->head;
         POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
@@ -633,7 +633,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
             // if (ANCESTER != parent) // debug
             // 	printf("Ancester: %p     last inner updated: %p\n", ANCESTER, parent);
         }
-        newLeafNode->Unlock();
+        newLeafNode->XUnlock();
     }
 }
 
@@ -702,7 +702,7 @@ bool FPtree::update(struct KV kv)
     uint64_t prevPos;
 
 retry:
-    reachedLeafNode = findLeaf(kv.key)
+    reachedLeafNode = findLeaf(kv.key);
 	prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos == MAX_LEAF_SIZE) // key not found
 	{
@@ -753,7 +753,7 @@ bool FPtree::insert(struct KV kv)
     uint64_t prevPos;
 
 retry:
-    reachedLeafNode = findLeaf(kv.key)
+    reachedLeafNode = findLeaf(kv.key);
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos != MAX_LEAF_SIZE) // key already exists
     {
@@ -998,139 +998,140 @@ void FPtree::removeLeafAndMergeInnerNodes(short i, short indexNode_level)
 
 bool FPtree::deleteKey(uint64_t key)
 {
-    LeafNode* leaf, *sibling;
-    InnerNode *parent, *cur; 
-    tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
-    Result decision = Result::Abort;
-    LeafNodeStat lstat;
-    short i, idx, indexNode_level, sib_level;
-    while (decision == Result::Abort) 
-    {
-        i = 0; indexNode_level = -1, sib_level = -1;
-        sibling = nullptr; 
-        /*---------------- Critical Section -----------------*/
-        lock_delete.acquire(speculative_lock, true);
+    // LeafNode* leaf, *sibling;
+    // InnerNode *parent, *cur; 
+    // tbb::speculative_spin_rw_mutex::scoped_lock lock_delete;
+    // Result decision = Result::Abort;
+    // LeafNodeStat lstat;
+    // short i, idx, indexNode_level, sib_level;
+    // while (decision == Result::Abort) 
+    // {
+    //     i = 0; indexNode_level = -1, sib_level = -1;
+    //     sibling = nullptr; 
+    //     /*---------------- Critical Section -----------------*/
+    //     lock_delete.acquire(speculative_lock, true);
 
-        if (!root) { lock_delete.release(); return false;} // empty tree
-        cur = reinterpret_cast<InnerNode*> (root);
-        while (cur->isInnerNode)
-        {
-            inners[i] = cur;
-            idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, key) - cur->keys;
-            if (idx < cur->nKey && cur->keys[idx] == key) // just found index node
-            {
-                indexNode_level = i;
-                idx ++;
-            }
-            if (idx != 0)
-                sib_level = i;
-            ppos[i++] = idx;
-            cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
-        }
-        parent = inners[--i];
-        leaf = reinterpret_cast<LeafNode*> (cur);
+    //     if (!root) { lock_delete.release(); return false;} // empty tree
+    //     cur = reinterpret_cast<InnerNode*> (root);
+    //     while (cur->isInnerNode)
+    //     {
+    //         inners[i] = cur;
+    //         idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, key) - cur->keys;
+    //         if (idx < cur->nKey && cur->keys[idx] == key) // just found index node
+    //         {
+    //             indexNode_level = i;
+    //             idx ++;
+    //         }
+    //         if (idx != 0)
+    //             sib_level = i;
+    //         ppos[i++] = idx;
+    //         cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
+    //     }
+    //     parent = inners[--i];
+    //     leaf = reinterpret_cast<LeafNode*> (cur);
 
-        if (!leaf->Lock()) { lock_delete.release(); continue; }
-        leaf->getStat(key, lstat);
-        if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
-        {
-            decision = Result::NotFound;
-            leaf->Unlock();
-        }
-        else if (lstat.count > 1)   // leaf contains key and other keys
-        {
-            if (indexNode_level >= 0) // key appears in an inner node, need to replace
-                inners[indexNode_level]->keys[ppos[indexNode_level] - 1] = lstat.min_key;
-            decision = Result::Remove;
-        }
-        else // leaf contains key only
-        {
-            if (parent) // try lock left sibling if exist, then remove leaf from parent and update inner nodes
-            {
-                if (sib_level >= 0)   // left sibling exists
-                {
-                    cur = reinterpret_cast<InnerNode*> (inners[sib_level]->p_children[ppos[sib_level] - 1]);
-                    while (cur->isInnerNode)
-                        cur = reinterpret_cast<InnerNode*> (cur->p_children[cur->nKey]);
-                    sibling = reinterpret_cast<LeafNode*> (cur);
-                    if (!sibling->Lock())
-                    {
-                        lock_delete.release(); leaf->Unlock(); continue;
-                    }
-                }
-                removeLeafAndMergeInnerNodes(i, indexNode_level);
-            }
-            decision = Result::Delete;
-        }
-        lock_delete.release();
-        /*---------------- Critical Section -----------------*/
-    }
-    if (decision == Result::Remove)
-    {
-        leaf->bitmap.reset(lstat.kv_idx);
-        #ifdef PMEM
-            TOID(struct LeafNode) lf = pmemobj_oid(leaf);
-            pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
-        #endif
-        leaf->Unlock();
-    }
-    else if (decision == Result::Delete)
-    {
-        #ifdef PMEM
-            TOID(struct LeafNode) lf = pmemobj_oid(leaf);
+    //     if (!leaf->Lock()) { lock_delete.release(); continue; }
+    //     leaf->getStat(key, lstat);
+    //     if (lstat.kv_idx == MAX_LEAF_SIZE) // key not found
+    //     {
+    //         decision = Result::NotFound;
+    //         leaf->Unlock();
+    //     }
+    //     else if (lstat.count > 1)   // leaf contains key and other keys
+    //     {
+    //         if (indexNode_level >= 0) // key appears in an inner node, need to replace
+    //             inners[indexNode_level]->keys[ppos[indexNode_level] - 1] = lstat.min_key;
+    //         decision = Result::Remove;
+    //     }
+    //     else // leaf contains key only
+    //     {
+    //         if (parent) // try lock left sibling if exist, then remove leaf from parent and update inner nodes
+    //         {
+    //             if (sib_level >= 0)   // left sibling exists
+    //             {
+    //                 cur = reinterpret_cast<InnerNode*> (inners[sib_level]->p_children[ppos[sib_level] - 1]);
+    //                 while (cur->isInnerNode)
+    //                     cur = reinterpret_cast<InnerNode*> (cur->p_children[cur->nKey]);
+    //                 sibling = reinterpret_cast<LeafNode*> (cur);
+    //                 if (!sibling->Lock())
+    //                 {
+    //                     lock_delete.release(); leaf->Unlock(); continue;
+    //                 }
+    //             }
+    //             removeLeafAndMergeInnerNodes(i, indexNode_level);
+    //         }
+    //         decision = Result::Delete;
+    //     }
+    //     lock_delete.release();
+    //     /*---------------- Critical Section -----------------*/
+    // }
+    // if (decision == Result::Remove)
+    // {
+    //     leaf->bitmap.reset(lstat.kv_idx);
+    //     #ifdef PMEM
+    //         TOID(struct LeafNode) lf = pmemobj_oid(leaf);
+    //         pmemobj_persist(pop, &D_RO(lf)->bitmap, sizeof(D_RO(lf)->bitmap));
+    //     #endif
+    //     leaf->Unlock();
+    // }
+    // else if (decision == Result::Delete)
+    // {
+    //     #ifdef PMEM
+    //         TOID(struct LeafNode) lf = pmemobj_oid(leaf);
             
-            // Get uLog from deleteLogQueue
-            Log* log;
-            if (!deleteLogQueue.pop(log)) { assert("Delete log queue pop error!"); }
+    //         // Get uLog from deleteLogQueue
+    //         Log* log;
+    //         if (!deleteLogQueue.pop(log)) { assert("Delete log queue pop error!"); }
 
-            //set uLog.PCurrentLeaf to persistent address of Leaf
-            log->PCurrentLeaf = lf;
-            pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+    //         //set uLog.PCurrentLeaf to persistent address of Leaf
+    //         log->PCurrentLeaf = lf;
+    //         pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
 
-            if (sibling) // set and persist sibling's p_next, then unlock sibling node
-            {
-                TOID(struct LeafNode) sib = pmemobj_oid(sibling);
+    //         if (sibling) // set and persist sibling's p_next, then unlock sibling node
+    //         {
+    //             TOID(struct LeafNode) sib = pmemobj_oid(sibling);
                 
-                log->PLeaf = sib;
-                pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+    //             log->PLeaf = sib;
+    //             pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
 
-                D_RW(sib)->p_next = D_RO(lf)->p_next;
-                pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
-                sibling->Unlock();
-            }
-            else if (parent) // the node to delete is left most node, set and persist list head instead
-            {
-                TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
-                D_RW(ListHead)->head = D_RO(lf)->p_next; 
-                pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
-            }
-            else
-            {
-                TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
-                D_RW(ListHead)->head = OID_NULL; 
-                pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
-                root = nullptr;
-            }
-            POBJ_FREE(&lf);
+    //             D_RW(sib)->p_next = D_RO(lf)->p_next;
+    //             pmemobj_persist(pop, &D_RO(sib)->p_next, sizeof(D_RO(sib)->p_next));
+    //             sibling->Unlock();
+    //         }
+    //         else if (parent) // the node to delete is left most node, set and persist list head instead
+    //         {
+    //             TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+    //             D_RW(ListHead)->head = D_RO(lf)->p_next; 
+    //             pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
+    //         }
+    //         else
+    //         {
+    //             TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+    //             D_RW(ListHead)->head = OID_NULL; 
+    //             pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
+    //             root = nullptr;
+    //         }
+    //         POBJ_FREE(&lf);
 
-            // reset uLog
-            log->PCurrentLeaf = OID_NULL;
-            log->PLeaf = OID_NULL;
-            pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
-            pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
-            deleteLogQueue.push(log);
-        #else
-            if (sibling)
-            {
-                sibling->p_next = leaf->p_next;
-                sibling->Unlock();
-            }
-            else if (!parent)
-                root = nullptr;
-            delete leaf;
-        #endif
-    }
-    return decision != Result::NotFound;
+    //         // reset uLog
+    //         log->PCurrentLeaf = OID_NULL;
+    //         log->PLeaf = OID_NULL;
+    //         pmemobj_persist(pop, &(log->PCurrentLeaf), SIZE_PMEM_POINTER);
+    //         pmemobj_persist(pop, &(log->PLeaf), SIZE_PMEM_POINTER);
+    //         deleteLogQueue.push(log);
+    //     #else
+    //         if (sibling)
+    //         {
+    //             sibling->p_next = leaf->p_next;
+    //             sibling->Unlock();
+    //         }
+    //         else if (!parent)
+    //             root = nullptr;
+    //         delete leaf;
+    //     #endif
+    // }
+    // return decision != Result::NotFound;
+    return true;
 }
 
 #ifdef PMEM
