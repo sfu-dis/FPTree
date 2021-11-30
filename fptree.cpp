@@ -1144,7 +1144,7 @@ bool FPtree::deleteKey(uint64_t key)
         {
             D_RW(uLog->PLeaf)->p_next = D_RO(uLog->PCurrentLeaf)->p_next;
             pmemobj_persist(pop, &D_RO(uLog->PLeaf)->p_next, SIZE_PMEM_POINTER);
-            D_RW(uLog->PLeaf)->Unlock();
+            D_RW(uLog->PLeaf)->XUnlock();
             POBJ_FREE(&(uLog->PCurrentLeaf));
         }
         else
@@ -1302,7 +1302,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
         if ((next_leaf = leaf->p_next) == nullptr)
             break;
     #endif
-	    while (!next_leaf->Lock())
+	    while (!next_leaf->SLock())
 	    {
 	    #ifdef backoff_sleep
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
@@ -1311,14 +1311,14 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
 	        for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
 	    #endif
 	    }
-	    leaf->Unlock();
+	    leaf->SUnlock();
 	    leaf = next_leaf;
 	    for (i = 0; i < MAX_LEAF_SIZE; i++)
 	        if (leaf->bitmap.test(i))
 	            records.push_back(leaf->kv_pairs[i]);
     }
     if (leaf && leaf->lock)
-        leaf->Unlock();
+        leaf->SUnlock();
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
     });
