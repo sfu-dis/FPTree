@@ -732,14 +732,12 @@ retry:
     }
 
     if (!split)
-    {
-        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
-    }
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
     else
-    {
-        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, true, prevPos);
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, false);
+        
+    if (ancestor)
         ancestor->XUnlock();
-    }
     reachedLeafNode->XUnlock();
     return true;
 }
@@ -783,14 +781,12 @@ retry:
     }
 
     if (!split)
-    {
         splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
-    }
     else
-    {
         splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, false);
+        
+    if (ancestor)
         ancestor->XUnlock();
-    }
     reachedLeafNode->XUnlock();
     return true;
 }
