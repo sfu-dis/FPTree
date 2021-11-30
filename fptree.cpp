@@ -15,12 +15,6 @@
     }
 #endif
 
-uint64_t rdtsc(){
-    unsigned int lo,hi;
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    return ((uint64_t)hi << 32) | lo;
-}
-
 BaseNode::BaseNode() 
 {
     this->isInnerNode = false;
@@ -362,7 +356,8 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
 	InnerNode* first;
 	BaseNode* second;
 retry:
-    if (!root->SLock())
+    root_snapshot = root;
+    if (!root_snapshot->SLock())
     {
         #ifdef backoff_sleep
             std::this_thread::sleep_for(std::chrono::nanoseconds(1));
@@ -372,12 +367,16 @@ retry:
         #endif
         goto retry;
     }
-    if (!root->isInnerNode) // root is leaf
-    	return reinterpret_cast<LeafNode*> (root);
+    if (!root_snapshot->isInnerNode) // root is leaf
+    	return reinterpret_cast<LeafNode*> (root_snapshot);
 
-    first = reinterpret_cast<InnerNode*> (root);
+    first = reinterpret_cast<InnerNode*> (root_snapshot);
     second = first;
-    
+    if (root_snapshot != root){ 
+        // printf("Root is not first\n"); // debug
+        root_snapshot->SUnlock();
+        goto retry;
+    }
     while(second->isInnerNode)
     {
     	second = first->p_children[first->findChildIndex(key)];
@@ -398,6 +397,7 @@ retry:
 
 inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, bool& split) 
 {
+    BaseNode* root_snapshot;
     BaseNode* first;
     BaseNode* second;
     *ancestor = nullptr;
@@ -405,7 +405,8 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, 
     int idx;
     // int retries = 0; // debug
 retry:
-    if (!root->XLock())
+    root_snapshot = root;
+    if (!root_snapshot->XLock())
     {
     	// retries ++; //debug
     	// if (retries == 10000000) // debug
@@ -419,13 +420,13 @@ retry:
         goto retry;
     }
     i_ = 0;
-    first = root;
+    first = root_snapshot;
     second = first;
-    // if (root != first){ 
-    // 	// printf("Root is not first\n"); // debug
-    // 	first->Unlock();
-    // 	goto retry;
-    // }
+    if (root_snapshot != root){ 
+    	// printf("Root is not first\n"); // debug
+    	root_snapshot->XUnlock();
+    	goto retry;
+    }
     if (first->isInnerNode)
     {
         inners[i_] = reinterpret_cast<InnerNode*> (first);
@@ -576,8 +577,7 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         /*---------------- Second Critical Section -----------------*/
         if (!root->isInnerNode) // splitting when tree has only root 
         {
-            cur = new InnerNode();
-            cur->init(splitKey, reachedLeafNode, newLeafNode);
+            cur = new InnerNode(splitKey, reachedLeafNode, newLeafNode);
             // printf("New root: %p \n", cur); // debug
             root = cur;
         }
@@ -732,9 +732,9 @@ retry:
     }
 
     if (!split)
-        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
     else
-        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, false);
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, true, prevPos);
         
     if (ancestor)
         ancestor->XUnlock();

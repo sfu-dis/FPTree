@@ -83,6 +83,12 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
 static uint8_t getOneByteHash(uint64_t key);
 
+static uint64_t rdtsc(){
+    unsigned int lo,hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
 struct KV
 {
     uint64_t key;
@@ -204,9 +210,8 @@ struct BaseNode
             if (expected & xlock)
                 return false;
             if (std::atomic_compare_exchange_strong(&lock, &expected, expected + 1))
-                break;
+                return true;
         }
-        return true;
     }
 
     bool XLock()
@@ -219,7 +224,14 @@ struct BaseNode
             if (std::atomic_compare_exchange_strong(&lock, &expected, expected | xlock))
                 break;
         }
-        while (lock != xlock) {}
+        while (lock != xlock) {
+            #ifdef backoff_sleep
+                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+            #elif defined(backoff_loop)
+                volatile long long sum= 0;
+                for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+            #endif
+        }
         return true;
     }
 
