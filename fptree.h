@@ -60,6 +60,7 @@
 #endif
 
 static const uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
+static const uint64_t xlock = 1 << 63;
 
 enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 
@@ -195,15 +196,47 @@ struct BaseNode
  public:
     BaseNode();
 
-    bool Lock()
+    bool SLock()
     {
-        expected = 0;
-        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+        while (true)
+        {
+            expected = lock;
+            if (expected & xlock)
+                return false;
+            if (std::atomic_compare_exchange_strong(&lock, &expected, expected + 1))
+                break;
+        }
+        return true;
     }
 
-    void Unlock()
+    bool XLock()
     {
-        this->lock = 0;
+        while (true)
+        {
+            expected = lock;
+            if (expected & xlock)
+                return false;
+            if (std::atomic_compare_exchange_strong(&lock, &expected, expected | xlock))
+                break;
+        }
+        while (lock != xlock) {}
+        return true;
+    }
+
+    bool UpgradeLock()
+    {
+        lock --;
+        return XLock();
+    }
+
+    void SUnlock()
+    {
+        lock --;
+    }
+
+    void XUnlock()
+    {
+        lock = 0;
     }
 } __attribute__((aligned(64)));
 
@@ -302,6 +335,14 @@ struct LeafNode : BaseNode
             bitmap.set(0);
             lock = 0;
         }
+
+        argLeafNode()
+        {
+            isInnerNode = false;
+            size = sizeof(struct LeafNode);
+            bitmap.set(0);
+            lock = 0;
+        }
     };
 
     static int constructLeafNode(PMEMobjpool *pop, void *ptr, void *arg);
@@ -363,7 +404,7 @@ struct FPtree
     BaseNode *root;
     tbb::speculative_spin_rw_mutex speculative_lock;
 
-   	std::atomic<uint64_t> lock;
+   	// std::atomic<uint64_t> lock;
 
     InnerNode* right_most_innnerNode; // for bulkload
 
@@ -371,16 +412,16 @@ struct FPtree
     FPtree();
     ~FPtree();
 
-    bool Lock()
-    {
-        expected = 0;
-        return std::atomic_compare_exchange_strong(&lock, &expected, 1);
-    }
+    // bool Lock()
+    // {
+    //     expected = 0;
+    //     return std::atomic_compare_exchange_strong(&lock, &expected, 1);
+    // }
 
-    void Unlock()
-    {
-        this->lock = 0;
-    }
+    // void Unlock()
+    // {
+    //     this->lock = 0;
+    // }
 
     BaseNode* getRoot () { return this->root; }
 

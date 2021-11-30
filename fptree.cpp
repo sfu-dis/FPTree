@@ -222,8 +222,7 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
 
 FPtree::FPtree() 
 {
-    root = nullptr;
-    lock.store(0, std::memory_order_acquire);
+    // lock.store(0, std::memory_order_acquire);
     #ifdef PMEM
         const char *path = "./test_pool";
 
@@ -258,6 +257,18 @@ FPtree::FPtree()
         }
     #else
         bitmap_idx = MAX_LEAF_SIZE;
+    #endif
+
+    #ifdef PMEM
+        struct argLeafNode args();
+        TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
+        TOID(struct LeafNode) *dst = &D_RW(ListHead)->head;
+        POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
+        D_RW(ListHead)->head = *dst; 
+        pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
+        root = (struct BaseNode *) pmemobj_direct((*dst).oid);
+    #else
+        root = new LeafNode();
     #endif
 }
 
@@ -351,35 +362,26 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
 	InnerNode* first;
 	BaseNode* second;
 retry:
-    root_snapshot = root;
-    if (!root_snapshot)
-        return nullptr;
-    if (!root_snapshot->Lock())
+    if (!root->SLock())
     {
-	#ifdef backoff_sleep
-		std::this_thread::sleep_for(std::chrono::nanoseconds(1));
-	#elif defined(backoff_loop)
-		volatile long long sum= 0;
-        for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
-    #endif
+        #ifdef backoff_sleep
+            std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+        #elif defined(backoff_loop)
+            volatile long long sum= 0;
+            for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
+        #endif
         goto retry;
     }
-    if (!root_snapshot->isInnerNode)
+    if (!root->isInnerNode) // root is leaf
     	return reinterpret_cast<LeafNode*> (root);
 
-    first = reinterpret_cast<InnerNode*> (root_snapshot);
+    first = reinterpret_cast<InnerNode*> (root);
     second = first;
-
-    if (root_snapshot != root){ 
-        // printf("Root changed\n"); // debug
-        root_snapshot->Unlock();
-        goto retry;
-    }
     
     while(second->isInnerNode)
     {
     	second = first->p_children[first->findChildIndex(key)];
-    	while (!second->Lock())
+    	while (!second->SLock())
     	{
 		#ifdef backoff_sleep
 			std::this_thread::sleep_for(std::chrono::nanoseconds(1));
@@ -388,7 +390,7 @@ retry:
             for (int i=(rdtsc() % 1024); i>0; i--) sum += i;
         #endif
     	}
-    	first->Unlock();
+    	first->SUnlock();
     	first = reinterpret_cast<InnerNode*> (second);
     }
     return reinterpret_cast<LeafNode*> (second);
@@ -403,10 +405,7 @@ inline LeafNode* FPtree::findLeafAssumeSplit(uint64_t key, BaseNode** ancestor, 
     int idx;
     // int retries = 0; // debug
 retry:
-	first = root;
-    if (!first)
-        return nullptr;
-    if (!first->Lock())
+    if (!root->XLock())
     {
     	// retries ++; //debug
     	// if (retries == 10000000) // debug
@@ -420,12 +419,13 @@ retry:
         goto retry;
     }
     i_ = 0;
+    first = root;
     second = first;
-    if (root != first){ 
-    	// printf("Root is not first\n"); // debug
-    	first->Unlock();
-    	goto retry;
-    }
+    // if (root != first){ 
+    // 	// printf("Root is not first\n"); // debug
+    // 	first->Unlock();
+    // 	goto retry;
+    // }
     if (first->isInnerNode)
     {
         inners[i_] = reinterpret_cast<InnerNode*> (first);
@@ -435,7 +435,7 @@ retry:
             second = (reinterpret_cast<InnerNode*> (second))->p_children[idx];
             ppos[i_++] = idx;
             // retries = 0; // debug
-            while (!second->Lock())
+            while (!second->XLock())
             {
        //      	retries ++; //debug
 		    	// if (retries == 10000000) // debug
@@ -457,12 +457,12 @@ retry:
                 inners[i_] = reinterpret_cast<InnerNode*> (second);
                 if ((reinterpret_cast<InnerNode*> (second))->nKey < MAX_INNER_SIZE) // inner not full
                 {
-                    first->Unlock();    // releasel lock on previous ancester
+                    first->XUnlock();    // releasel lock on previous ancester
                     first = second;
                 }
                 else // inner full, keep going without lock
                 {
-                    second->Unlock();
+                    second->XUnlock();
                 }
             }
             else
@@ -473,12 +473,12 @@ retry:
     }
     if ((reinterpret_cast<LeafNode*> (second))->isFull())
         split = true;
-    if (first != second && !split)
-        first->Unlock();
-    else
+    if (first != second)
     {
-        *ancestor = first;
-        // ANCESTER = first; //debug
+        if (!split)
+            first->XUnlock();
+        else
+            *ancestor = first;
     }
     return reinterpret_cast<LeafNode*> (second);
 }
@@ -512,7 +512,7 @@ uint64_t FPtree::find(uint64_t key)
     	idx = pLeafNode->findKVIndex(key);
 	    if (idx != MAX_LEAF_SIZE)
 	    	ret = pLeafNode->kv_pairs[idx].value;
-	    pLeafNode->Unlock();
+	    pLeafNode->SUnlock();
     }
     return ret;
 }
@@ -701,111 +701,97 @@ bool FPtree::update(struct KV kv)
     bool split;
     uint64_t prevPos;
 
-    if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) // leaf not found
-    	return false;
+retry:
+    reachedLeafNode = findLeaf(kv.key)
 	prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos == MAX_LEAF_SIZE) // key not found
 	{
-		reachedLeafNode->Unlock();
+		reachedLeafNode->SUnlock();
 		return false;
 	}
 	if (!reachedLeafNode->isFull()) // no split needed during update
 	{
-		splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
-		reachedLeafNode->Unlock();
-		return true;
+        if (reachedLeafNode->UpgradeLock())
+        {
+            splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
+            reachedLeafNode->XUnlock();
+            return true;
+        }
+		goto retry;
 	}
-	reachedLeafNode->Unlock();
+	reachedLeafNode->SUnlock();
 
-    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
-		return false;
+    reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split); 
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos == MAX_LEAF_SIZE) // key not found
     {
-        if (ancestor && ancestor != reachedLeafNode)
-            ancestor->Unlock();
-        reachedLeafNode->Unlock();
+        if (ancestor)
+            ancestor->XUnlock();
+        reachedLeafNode->XUnlock();
         return false;
     }
-    Result decision = split ? Result::Split : Result::Update;
 
-    splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, true, prevPos);
-
-    if (ancestor && ancestor != reachedLeafNode)
-        ancestor->Unlock();
-    reachedLeafNode->Unlock();
+    if (!split)
+    {
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, true, prevPos);
+    }
+    else
+    {
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, true, prevPos);
+        ancestor->XUnlock();
+    }
+    reachedLeafNode->XUnlock();
     return true;
 }
 
 
 bool FPtree::insert(struct KV kv) 
 {
-    while (!root)  // if tree is empty
-    {
-    	if (Lock()) // I can create new root
-    	{
-    		if (root)	// check again
-    		{
-    			Unlock();
-            	break;
-    		}
-    		#ifdef PMEM
-                struct argLeafNode args(kv);
-                TOID(struct List) ListHead = POBJ_ROOT(pop, struct List);
-                TOID(struct LeafNode) *dst = &D_RW(ListHead)->head;
-                POBJ_ALLOC(pop, dst, struct LeafNode, args.size, constructLeafNode, &args);
-                D_RW(ListHead)->head = *dst; 
-                pmemobj_persist(pop, &D_RO(ListHead)->head, sizeof(D_RO(ListHead)->head));
-                root = (struct BaseNode *) pmemobj_direct((*dst).oid);
-                // printf("First root: %p \n", root); // debug
-            #else
-                auto new_root = new LeafNode();
-                new_root->addKV(kv);
-                root = new_root;
-            #endif
-            Unlock();
-            return true;
-    	}
-    	//backoff?
-    }
     BaseNode* ancestor;
     LeafNode* reachedLeafNode;
     bool split;
     uint64_t prevPos;
 
-   if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) // leaf not found
-    	return false;
-	prevPos = reachedLeafNode->findKVIndex(kv.key);
-    if (prevPos != MAX_LEAF_SIZE) // key already exists
-	{
-		reachedLeafNode->Unlock();
-		return false;
-	}
-	if (!reachedLeafNode->isFull()) // no split needed during insert
-	{
-		splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
-		reachedLeafNode->Unlock();
-		return true;
-	}
-	reachedLeafNode->Unlock();
-
-    if ((reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split)) == nullptr) 
-		return false;
+retry:
+    reachedLeafNode = findLeaf(kv.key)
     prevPos = reachedLeafNode->findKVIndex(kv.key);
     if (prevPos != MAX_LEAF_SIZE) // key already exists
     {
-        if (ancestor && ancestor != reachedLeafNode)
-            ancestor->Unlock();
-        reachedLeafNode->Unlock();
+        reachedLeafNode->SUnlock();
         return false;
     }
-    Result decision = split ? Result::Split : Result::Update;
+    if (!reachedLeafNode->isFull()) // no split needed during insert
+    {
+        if (reachedLeafNode->UpgradeLock())
+        {
+            splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
+            reachedLeafNode->XUnlock();
+            return true;
+        }
+        goto retry;
+    }
+    reachedLeafNode->SUnlock();
 
-    splitLeafAndUpdateInnerParents(reachedLeafNode, decision, kv, false);
+    reachedLeafNode = findLeafAssumeSplit(kv.key, &ancestor, split); 
+    prevPos = reachedLeafNode->findKVIndex(kv.key);
+    if (prevPos != MAX_LEAF_SIZE) // key already exists
+    {
+        if (ancestor)
+            ancestor->XUnlock();
+        reachedLeafNode->XUnlock();
+        return false;
+    }
 
-    if (ancestor && ancestor != reachedLeafNode)
-        ancestor->Unlock();
-    reachedLeafNode->Unlock();
+    if (!split)
+    {
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Update, kv, false);
+    }
+    else
+    {
+        splitLeafAndUpdateInnerParents(reachedLeafNode, Result::Split, kv, false);
+        ancestor->XUnlock();
+    }
+    reachedLeafNode->XUnlock();
     return true;
 }
 
