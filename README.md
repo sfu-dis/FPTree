@@ -8,9 +8,9 @@ In Proceedings of the 2016 International Conference on Management of Data, SIGMO
 
 
 ## Important information before installation
-FP-Tree use Intel Threading Building Blocks (oneTBB) for concurrency control. 
+FPTree use Intel Threading Building Blocks (oneTBB) for concurrency control. 
 The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
-1. To achieve better scalability, we are using customized TBB library for FP-Tree
+1. To achieve better scalability, we are using customized TBB library for FPTree
 (which is also the approach taken by the original author). <br/> Here are the steps to generate libtbb.so:<br/>
 	* Clone oneTBB from github (https://github.com/oneapi-src/oneTBB.git)<br/>
 	* Modify the read/write retry from **10 to 256** in ***oneTBB/src/tbb/rtm_mutex.cpp*** and ***oneTBB/src/tbb/rtm_rw_mutex.cpp***<br/>
