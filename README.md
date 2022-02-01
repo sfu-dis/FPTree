@@ -32,14 +32,14 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
 ### Build PMEM Version
 
 ```bash
-mkdir build & cd build
+mkdir build && cd build
 cmake -DPMEM_BACKEND=PMEM ..
 ```
 
 ### Build DRAM Version
 
 ```bash
-mkdir build & cd build
+mkdir build && cd build
 cmake -DPMEM_BACKEND=DRAM ..
 ```
 
@@ -56,7 +56,7 @@ Enter `exit` to leave the program and then it will perform the scan operation fr
 
 #### Inspector executable
 ```bash
-mkdir build & cd build
+mkdir build && cd build
 cmake -DPMEM_BACKEND=${BACKEND} -DBUILD_INSPECTOR=1 ..
 ```
 
@@ -78,6 +78,6 @@ Checkout PiBench here: https://github.com/sfu-dis/pibench
 ### Build/Create FPTree shared lib
 
 ```bash
-mkdir Release & cd Release
+mkdir Release && cd Release
 cmake -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 ..
 ```
