@@ -55,11 +55,6 @@ if(${BUILD_INSPECTOR})
   )
 else()
   message(STATUS "BUILD_INSPECTOR: not defined")
-  add_executable(
-    fptree
-    fptree.cpp
-    fptree.h
-  )
 endif()
 
 ##################### PiBench #########################
