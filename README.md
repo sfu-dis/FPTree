@@ -7,13 +7,13 @@ In Proceedings of the 2016 International Conference on Management of Data, SIGMO
 ```
 
 
-## Important information before installation
+## Important information before installation!!!
 FPTree use Intel Threading Building Blocks (oneTBB) for concurrency control. 
 The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
 1. To achieve better scalability, we are using customized TBB library for FPTree
 (which is also the approach taken by the original author). <br/> Here are the steps to generate libtbb.so:<br/>
-	* Clone oneTBB from github (https://github.com/oneapi-src/oneTBB.git)<br/> to this repo (i.e., /path/to/your/fptree/oneTBB).
-	* Modify the read/write retry from **10 to 256** in ***oneTBB/src/tbb/rtm_mutex.cpp*** and ***oneTBB/src/tbb/rtm_rw_mutex.cpp***<br/>
+	* Clone oneTBB from github (https://github.com/oneapi-src/oneTBB.git)<br/> **to this repo** (i.e., /path/to/your/fptree/oneTBB).
+	* Modify the read/write retry from **10 to 256** in `oneTBB/src/tbb/rtm_mutex.cpp` and `oneTBB/src/tbb/rtm_rw_mutex.cpp`<br/>
 	* `cd oneTBB && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j`<br/>
 	* Check that libtbb.so exists in *oneTBB/build/gnu_11.1_cxx11_64_release*<br/>
     * Modify **CMakeLists.txt** located in FPTree folder to use custom TBB <br/>
@@ -34,8 +34,9 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
        #include "oneapi/tbb/spin_mutex.h"
        #include "oneapi/tbb/spin_rw_mutex.h"
        ```
-3. Modify `#define PMEMOBJ_POOL_SIZE` in fptree.h if BACKEND = PMEM (defined in CMakeLists.txt)<br/>
-4. Modify `#define MAX_INNER_SIZE 128` and `#define MAX_LEAF_SIZE 64` in fptree.h if you want. These are tunable variable. 
+2. Modify `#define PMEMOBJ_POOL_SIZE` in fptree.h if BACKEND = PMEM (defined in CMakeLists.txt)<br/>
+3. Modify `#define MAX_INNER_SIZE 128` and `#define MAX_LEAF_SIZE 64` in fptree.h if you want. These are tunable variable. 
+4. Modify this [path](https://github.com/sfu-dis/fptree/blob/e26e166f2ae85eafa7f7b82f5872dc8df56e8658/fptree.cpp#L217) as needed. **Note**, this hardcoded path will override PiBench's `--pool_path`. A more flexible solution is under development.
 
 ## Build
 
