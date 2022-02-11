@@ -26,9 +26,16 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
 	* After the line that adds fptree pibench wrapper library, do target link below.
        ```
        target_link_libraries(fptree_pibench_wrapper libtbb.so)
-       ``` 
-2. Modify `#define PMEMOBJ_POOL_SIZE` in fptree.h if BACKEND = PMEM (defined in CMakeLists.txt)<br/>
-3. Modify `#define MAX_INNER_SIZE 128` and `#define MAX_LEAF_SIZE 64` in fptree.h if you want. These are tunable variable. 
+       ```
+2. Change header files in fptree.h to include those from custom tbb like this: 
+```
+// #include <tbb/spin_mutex.h>
+// #include <tbb/spin_rw_mutex.h>
+#include "oneapi/tbb/spin_mutex.h"
+#include "oneapi/tbb/spin_rw_mutex.h"
+```
+3. Modify `#define PMEMOBJ_POOL_SIZE` in fptree.h if BACKEND = PMEM (defined in CMakeLists.txt)<br/>
+4. Modify `#define MAX_INNER_SIZE 128` and `#define MAX_LEAF_SIZE 64` in fptree.h if you want. These are tunable variable. 
 
 ## Build
 
