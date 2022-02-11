@@ -90,7 +90,7 @@ Checkout PiBench here: https://github.com/sfu-dis/pibench
 
 ```bash
 mkdir Release && cd Release
-cmake -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 ..
+cmake -DPMEM_BACKEND=<PMEM|DRAM> -DTEST_MODE=0 -DBUILD_INSPECTOR=0 ..
 ```
 If you see the error below when you try to run PiBench with this wrapper:
 ```
