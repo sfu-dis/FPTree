@@ -12,7 +12,7 @@ FPTree use Intel Threading Building Blocks (oneTBB) for concurrency control.
 The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
 1. To achieve better scalability, we are using customized TBB library for FPTree
 (which is also the approach taken by the original author). <br/> Here are the steps to generate libtbb.so:<br/>
-	* Clone oneTBB from github (https://github.com/oneapi-src/oneTBB.git)<br/>
+	* Clone oneTBB from github (https://github.com/oneapi-src/oneTBB.git)<br/> to this repo (i.e., /path/to/your/fptree/oneTBB).
 	* Modify the read/write retry from **10 to 256** in ***oneTBB/src/tbb/rtm_mutex.cpp*** and ***oneTBB/src/tbb/rtm_rw_mutex.cpp***<br/>
 	* `cd oneTBB && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j`<br/>
 	* Check that libtbb.so exists in *oneTBB/build/gnu_11.1_cxx11_64_release*<br/>
@@ -20,8 +20,8 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
        * delete -ltbb flag in CMAKE_CXX_FLAGS which link to your default TBB built <br/>
        * add and modify them in the proper place in CMakeLists.txt
        ```
-       link_directories(/path/to/your/oneTBB/build/gnu_11.1_cxx11_64_release) # gnu version and cxx version could vary
-       include_directories(/path/to/your/oneTBB/include)
+       link_directories(oneTBB/build/gnu_11.1_cxx11_64_release) # gnu version and cxx version could vary
+       include_directories(oneTBB/include)
        ```
 	* After the line that adds fptree pibench wrapper library, do target link below.
        ```
@@ -56,7 +56,7 @@ cmake -DPMEM_BACKEND=DRAM ..
 All executables are in `build/src` folder
 
 #### Interative executable
-Above command help you build `fptree` executable
+Above command help you build `fptree` executable (Note, `fptree` doesn't compile for now.)
 
 It will pre-load 100 keys and then let you play with
 
