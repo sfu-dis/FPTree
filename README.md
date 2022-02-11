@@ -91,3 +91,11 @@ Checkout PiBench here: https://github.com/sfu-dis/pibench
 mkdir Release && cd Release
 cmake -DPMEM_BACKEND=${BACKEND} -DTEST_MODE=0 -DBUILD_INSPECTOR=0 ..
 ```
+If you see the error below when you try to run PiBench with this wrapper:
+```
+Error in dlopen(): /lib/x86_64-linux-gnu/libjemalloc.so.2: cannot allocate memory in static TLS block
+```
+You can try adding `LD_PRELOAD` before the PiBench executable:
+```
+LD_PRELOAD=/path/to/your/libjemalloc.so ./PiBench ...
+```
