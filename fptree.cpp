@@ -1267,7 +1267,7 @@ uint64_t rdtsc(){
 }
 
 
-
+#ifdef PMEM
 #if BUILD_INSPECTOR == 0
     int main(int argc, char *argv[]) 
     {
@@ -1334,4 +1334,5 @@ uint64_t rdtsc(){
         }
         std::cout << std::endl;
     }
+#endif
 #endif

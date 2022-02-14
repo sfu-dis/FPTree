@@ -35,3 +35,8 @@ makefile
 *.app
 
 bitset
+build
+oneTBB
+CMakeLists.txt
+README.txt
+
