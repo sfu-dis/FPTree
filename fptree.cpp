@@ -1,3 +1,11 @@
+// Copyright (c) Simon Fraser University. All rights reserved.
+// Licensed under the MIT license.
+//
+// Authors:
+// George He <georgeh@sfu.ca>
+// Duo Lu <luduol@sfu.ca>
+// Tianzheng Wang <tzwang@sfu.ca>
+
 #include "fptree.h"
 
 #ifdef PMEM
@@ -344,8 +352,8 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
 
 inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
 {
-	if (!root)
-		return nullptr;
+    if (!root)
+	return nullptr;
     stack_innerNodes.clear();
     if (!root->isInnerNode) 
     {
@@ -418,9 +426,10 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
         }
         pmemobj_persist(pop, &D_RO(insertNode)->bitmap, sizeof(D_RO(insertNode)->bitmap));
     #else
-        insertNode->addKV(kv); 
-        if (prevPos != MAX_LEAF_SIZE)
-            insertNode->bitmap.reset(prevPos);
+        if (updateFunc)
+            insertNode->kv_pairs[prevPos].value = kv.value;
+        else
+            insertNode->addKV(kv);
     #endif
 
     if (decision == Result::Split)
@@ -592,7 +601,6 @@ bool FPtree::update(struct KV kv)
     
     return true;
 }
-
 
 
 bool FPtree::insert(struct KV kv) 
@@ -1143,7 +1151,7 @@ bool FPtree::scanComplete()
 }
 
 
-uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
+uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
 {
     LeafNode* leaf, * next_leaf;
     std::vector<KV> records;

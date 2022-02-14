@@ -9,6 +9,7 @@
 #include <shared_mutex>
 #include <libpmemobj.h>
 
+// #define DEBUG_MSG
 
 class fptree_wrapper : public tree_api
 {

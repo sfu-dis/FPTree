@@ -1,3 +1,11 @@
+// Copyright (c) Simon Fraser University. All rights reserved.
+// Licensed under the MIT license.
+//
+// Authors:
+// George He <georgeh@sfu.ca>
+// Duo Lu <luduol@sfu.ca>
+// Tianzheng Wang <tzwang@sfu.ca>
+
 #pragma once
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +18,8 @@
 #include <immintrin.h>
 #include <tbb/spin_mutex.h>
 #include <tbb/spin_rw_mutex.h>
+//#include "oneapi/tbb/spin_mutex.h"
+//#include "oneapi/tbb/spin_rw_mutex.h"
 #include <iostream>
 #include <string>
 #include <cstdint>
@@ -380,7 +390,7 @@ struct FPtree
 
     bool scanComplete();
 
-    uint64_t rangeScan(uint64_t key, uint64_t scan_size, char*& result);
+    uint64_t rangeScan(uint64_t key, uint64_t scan_size, char* result);
 
     #ifdef PMEM
         bool bulkLoad(float load_factor);
