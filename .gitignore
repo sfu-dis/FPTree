@@ -37,6 +37,4 @@ makefile
 bitset
 build
 oneTBB
-CMakeLists.txt
-README.txt
-
+Release
