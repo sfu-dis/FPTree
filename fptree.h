@@ -31,6 +31,8 @@
 #include <thread>
 #include <boost/lockfree/queue.hpp>
 
+#define PMEM
+
 #ifdef TEST_MODE
     #define MAX_INNER_SIZE 3
     #define MAX_LEAF_SIZE 4
@@ -388,6 +390,8 @@ struct FPtree
         void recoverDelete(Log* uLog);
 
         void recover();
+
+        void pmemInit(const char* path_ptr, long long pool_size);
 
         void showList();
     #endif

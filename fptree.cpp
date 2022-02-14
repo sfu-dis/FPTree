@@ -200,23 +200,18 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
             recoverDelete(&D_RW(root_LogArray)[i]);
         }
     }
-#endif
 
-FPtree::FPtree() 
-{
-    root = nullptr;
-    #ifdef PMEM
-        const char *path = "./test_pool";
-
-        if (file_pool_exists(path) == 0) 
+    void FPtree::pmemInit(const char* path_ptr, long long pool_size)
+    {
+        if (file_pool_exists(path_ptr) == 0) 
         {
-            if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
+            if ((pop = pmemobj_create(path_ptr, POBJ_LAYOUT_NAME(FPtree), pool_size, 0666)) == NULL) 
                 perror("failed to create pool\n");
             root_LogArray = allocLogArray();
         } 
         else 
         {
-            if ((pop = pmemobj_open(path, POBJ_LAYOUT_NAME(FPtree))) == NULL)
+            if ((pop = pmemobj_open(path_ptr, POBJ_LAYOUT_NAME(FPtree))) == NULL)
                 perror("failed to open pool\n");
             else 
             {
@@ -237,7 +232,14 @@ FPtree::FPtree()
             D_RW(root_LogArray)[i].PLeaf = OID_NULL;
             deleteLogQueue.push(&D_RW(root_LogArray)[i]);
         }
-    #else
+    }
+
+#endif
+
+FPtree::FPtree() 
+{
+    root = nullptr;
+    #ifndef PMEM
         bitmap_idx = MAX_LEAF_SIZE;
     #endif
 }
@@ -1150,7 +1152,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
     tbb::speculative_spin_rw_mutex::scoped_lock lock_scan;
     while (true) 
     {
-        lock_scan.acquire(speculative_lock, true);
+        lock_scan.acquire(speculative_lock, false);
         if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
         if (!leaf->Lock()) { lock_scan.release(); continue; }
         for (i = 0; i < MAX_LEAF_SIZE; i++)
@@ -1170,7 +1172,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
                 std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             leaf->Unlock();
             leaf = next_leaf;
-            for (i = 0; i < MAX_LEAF_SIZE && records.size() < scan_size; i++)
+            for (i = 0; i < MAX_LEAF_SIZE; i++)
                 if (leaf->bitmap.test(i))
                     records.push_back(leaf->kv_pairs[i]);
         }
@@ -1182,9 +1184,10 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char*& result)
     std::sort(records.begin(), records.end(), [] (const KV& kv1, const KV& kv2) {
             return kv1.key < kv2.key;
     });
-    result = new char[sizeof(KV) * records.size()];
-    memcpy(result, records.data(), sizeof(KV) * records.size());
-    return records.size();
+    // result = new char[sizeof(KV) * records.size()];
+    i = records.size() > scan_size ? scan_size : records.size();
+    memcpy(result, records.data(), sizeof(KV) * i);
+    return i;
 }
 
 
@@ -1260,8 +1263,10 @@ uint64_t rdtsc(){
 #if BUILD_INSPECTOR == 0
     int main(int argc, char *argv[]) 
     {
+        const char* path = "./test_pool";
         srand( (unsigned) time(NULL) * getpid());
         FPtree fptree;
+        fptree.pmemInit(path, PMEMOBJ_POOL_SIZE);
 
         #ifdef PMEM
             const char* command = argv[1];
