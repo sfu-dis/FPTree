@@ -14,7 +14,11 @@
 class fptree_wrapper : public tree_api
 {
 public:
+#ifdef PMEM
+    fptree_wrapper(const char* path_ptr, long long pool_size);
+#else
     fptree_wrapper();
+#endif    
     virtual ~fptree_wrapper();
     
     virtual bool find(const char* key, size_t key_sz, char* value_out) override;
@@ -28,9 +32,18 @@ private:
 };
 
 
-fptree_wrapper::fptree_wrapper()
-{
-}
+#ifdef PMEM
+    fptree_wrapper::fptree_wrapper(const char* path_ptr, long long pool_size)
+    {
+	tree_.pmemInit(path_ptr, pool_size);
+    }
+#else
+    fptree_wrapper::fptree_wrapper()
+    {
+    }
+#endif
+
+
 
 fptree_wrapper::~fptree_wrapper()
 {

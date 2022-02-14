@@ -208,23 +208,18 @@ inline LeafNode* FPtree::maxLeaf(BaseNode* node)
             recoverDelete(&D_RW(root_LogArray)[i]);
         }
     }
-#endif
 
-FPtree::FPtree() 
-{
-    root = nullptr;
-    #ifdef PMEM
-        const char *path = "./test_pool";
-
-        if (file_pool_exists(path) == 0) 
+    void FPtree::pmemInit(const char* path_ptr, long long pool_size)
+    {
+        if (file_pool_exists(path_ptr) == 0) 
         {
-            if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
+            if ((pop = pmemobj_create(path_ptr, POBJ_LAYOUT_NAME(FPtree), pool_size, 0666)) == NULL) 
                 perror("failed to create pool\n");
             root_LogArray = allocLogArray();
         } 
         else 
         {
-            if ((pop = pmemobj_open(path, POBJ_LAYOUT_NAME(FPtree))) == NULL)
+            if ((pop = pmemobj_open(path_ptr, POBJ_LAYOUT_NAME(FPtree))) == NULL)
                 perror("failed to open pool\n");
             else 
             {
@@ -245,7 +240,14 @@ FPtree::FPtree()
             D_RW(root_LogArray)[i].PLeaf = OID_NULL;
             deleteLogQueue.push(&D_RW(root_LogArray)[i]);
         }
-    #else
+    }
+
+#endif
+
+FPtree::FPtree() 
+{
+    root = nullptr;
+    #ifndef PMEM
         bitmap_idx = MAX_LEAF_SIZE;
     #endif
 }
@@ -579,7 +581,6 @@ bool FPtree::update(struct KV kv)
     volatile Result decision = Result::Abort;
     while (decision == Result::Abort)
     {
-        // std::this_thread::sleep_for(std::chrono::nanoseconds(1));
         lock_update.acquire(speculative_lock, false);
         if ((reachedLeafNode = findLeaf(kv.key)) == nullptr) { lock_update.release(); return false; }
         if (!reachedLeafNode->Lock()) { lock_update.release(); continue; }
@@ -736,9 +737,10 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     KV tempArr[MAX_LEAF_SIZE];
     memcpy(tempArr, leaf->kv_pairs, sizeof(leaf->kv_pairs));
     // TODO: find median in one pass instead of sorting
-    std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2){
-            return kv1.key < kv2.key;
-        });
+    std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2)
+    {
+        return kv1.key < kv2.key;
+    });
 
     uint64_t mid = floor(MAX_LEAF_SIZE / 2);
     uint64_t splitKey = tempArr[mid].key;
@@ -1191,7 +1193,7 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
             return kv1.key < kv2.key;
     });
     // result = new char[sizeof(KV) * records.size()];
-    i = records.size() > scan_size? scan_size : records.size();
+    i = records.size() > scan_size ? scan_size : records.size();
     memcpy(result, records.data(), sizeof(KV) * i);
     return i;
 }
@@ -1265,12 +1267,14 @@ uint64_t rdtsc(){
 }
 
 
-
+#ifdef PMEM
 #if BUILD_INSPECTOR == 0
     int main(int argc, char *argv[]) 
     {
+        const char* path = "./test_pool";
         srand( (unsigned) time(NULL) * getpid());
         FPtree fptree;
+        fptree.pmemInit(path, PMEMOBJ_POOL_SIZE);
 
         #ifdef PMEM
             const char* command = argv[1];
@@ -1330,4 +1334,5 @@ uint64_t rdtsc(){
         }
         std::cout << std::endl;
     }
+#endif
 #endif

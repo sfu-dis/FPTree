@@ -40,6 +40,7 @@
 #include <cassert>
 #include <thread>
 #include <boost/lockfree/queue.hpp>
+#include <sys/stat.h>
 
 #ifdef TEST_MODE
     #define MAX_INNER_SIZE 3
@@ -166,7 +167,7 @@ class Bitset
     inline size_t first_zero() 
     {
         size_t idx = __builtin_ffsl(bits ^ offset);
-        return idx? idx - 1 : MAX_LEAF_SIZE;
+        return idx ? idx - 1 : MAX_LEAF_SIZE;
     }
 
     void print_bits()
@@ -398,6 +399,8 @@ struct FPtree
         void recoverDelete(Log* uLog);
 
         void recover();
+
+        void pmemInit(const char* path_ptr, long long pool_size);
 
         void showList();
     #endif

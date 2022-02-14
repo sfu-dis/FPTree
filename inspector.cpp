@@ -320,7 +320,10 @@ int main()
     std::generate(begin(values), end(values), std::ref(rbe));
     std::cout << "Key generation complete, start loading...\n";
 
+	const char* path = "./test_pool";
     FPtree fptree;
+	fptree.pmemInit(path, PMEMOBJ_POOL_SIZE);
+
     Inspector ins;
     std::vector<std::thread> workers(NUM_WORKER_THREAD);
     
