@@ -56,15 +56,6 @@ cmake -DPMEM_BACKEND=DRAM ..
 
 All executables are in `build/src` folder
 
-#### Interative executable
-Above command help you build `fptree` executable (Note, `fptree` doesn't compile for now.)
-
-It will pre-load 100 keys and then let you play with
-
-```Enter the key to insert, delete or update (-1):```
-
-Enter `exit` to leave the program and then it will perform the scan operation from the header leaf node
-
 #### Inspector executable
 ```bash
 mkdir build && cd build
