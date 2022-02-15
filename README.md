@@ -36,7 +36,6 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
        ```
 2. Modify `#define PMEMOBJ_POOL_SIZE` in fptree.h if BACKEND = PMEM (defined in CMakeLists.txt)<br/>
 3. Modify `#define MAX_INNER_SIZE 128` and `#define MAX_LEAF_SIZE 64` in fptree.h if you want. These are tunable variable. 
-4. Modify this [path](https://github.com/sfu-dis/fptree/blob/e26e166f2ae85eafa7f7b82f5872dc8df56e8658/fptree.cpp#L217) as needed. **Note**, this hardcoded path will override PiBench's `--pool_path`. A more flexible solution is under development.
 
 ## Build (check out the next section for running pibench with the fptree wrapper)
 
