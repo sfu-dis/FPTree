@@ -36,7 +36,15 @@ The default retry threshold for oneTBB is only 10 for read write mutex.  <br/>
        ```
 2. Modify `#define PMEMOBJ_POOL_SIZE` in fptree.h if BACKEND = PMEM (defined in CMakeLists.txt)<br/>
 3. Modify `#define MAX_INNER_SIZE 128` and `#define MAX_LEAF_SIZE 64` in fptree.h if you want. These are tunable variable. 
-
+4. To use HTM, you will need to turn on TSX on your machine. If you execute `lscpu` and see `Vulnerability Tsx async abort:   Vulnerable`, then TSX is turned on. Otherwise, here is an example of how to turn on TSX on archlinux.
+* Make sure everything's up-to-date and consistent. Use pacman to do an update.
+* Add this line to /etc/default/grub: 
+```GRUB_CMDLINE_LINUX_DEFAULT="tsx=on tsx_async_abort=off loglevel=3 quiet"```
+* Run these commands:
+```
+grub-mkconfig -o /boot/grub/grub.cfg
+systemctl reboot
+```
 ## Build (check out the next section for running pibench with the fptree wrapper)
 
 ### Build PMEM Version
