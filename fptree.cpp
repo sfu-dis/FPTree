@@ -2,8 +2,8 @@
 // Licensed under the MIT license.
 //
 // Authors:
-// George He <georgeh@sfu.ca>
 // Duo Lu <luduol@sfu.ca>
+// George He <georgeh@sfu.ca>
 // Tianzheng Wang <tzwang@sfu.ca>
 
 #include "fptree.h"
@@ -13,6 +13,33 @@
     {
         return ( access( name.c_str(), F_OK ) != -1 );
     }
+#endif
+
+/*
+    Use case
+    uint64_t tick = rdtsc();
+    Put program between 
+    std::cout << rdtsc() - tick << std::endl;
+*/
+uint64_t rdtsc(){
+    unsigned int lo,hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+#ifdef VAR_KEY
+int vkcmp(char* a, char* b) {
+/*
+	auto n = key_size_;
+    while(n--)
+        if( *a != *b )
+            return *a - *b;
+        else
+            a++,b++;
+    return 0;
+*/
+    return memcmp(a, b, key_size_);
+}
 #endif
 
 BaseNode::BaseNode() 
@@ -99,11 +126,20 @@ void InnerNode::addKey(uint64_t index, uint64_t key, BaseNode* child, bool add_c
 
 inline uint64_t InnerNode::findChildIndex(uint64_t key)
 {
+#ifdef VAR_KEY 
+    auto lower = std::lower_bound(this->keys, this->keys + this->nKey, key, 
+        [](uint64_t a, uint64_t b) { return vkcmp((char*)a, (char*)b) < 0; });
+    uint64_t idx = lower - this->keys;
+    if (idx < this->nKey && vkcmp((char*)*lower, (char*)key) == 0)
+        idx++;
+#else
     auto lower = std::lower_bound(this->keys, this->keys + this->nKey, key);
     uint64_t idx = lower - this->keys;
     if (idx < this->nKey && *lower == key)
         idx++;
+#endif
     return idx;
+
 }
 
 inline void LeafNode::addKV(struct KV kv)
@@ -117,14 +153,19 @@ inline void LeafNode::addKV(struct KV kv)
 
 inline uint64_t LeafNode::findKVIndex(uint64_t key)
 {
-    size_t key_hash = getOneByteHash(key);
+    uint8_t key_hash = getOneByteHash(key);
     for (uint64_t i = 0; i < MAX_LEAF_SIZE; i++) 
     {
         if (this->bitmap.test(i) == 1 &&
-            this->fingerprints[i] == key_hash &&
-            this->kv_pairs[i].key == key)
+            this->fingerprints[i] == key_hash)
         {
-            return i;
+        #ifdef VAR_KEY
+            if (vkcmp((char*)(this->kv_pairs[i].key), (char*)key) == 0)
+                return i;
+        #else
+            if (this->kv_pairs[i].key == key)
+                return i;
+        #endif
         }
     }
     return MAX_LEAF_SIZE;
@@ -214,17 +255,15 @@ FPtree::FPtree()
 {
     root = nullptr;
     #ifdef PMEM
-        const char *path = "./test_pool";
-
-        if (file_pool_exists(path) == 0) 
+        if (!file_pool_exists(pool_path_)) 
         {
-            if ((pop = pmemobj_create(path, POBJ_LAYOUT_NAME(FPtree), PMEMOBJ_POOL_SIZE, 0666)) == NULL) 
+            if ((pop = pmemobj_create(pool_path_, POBJ_LAYOUT_NAME(FPtree), pool_size_, 0666)) == NULL) 
                 perror("failed to create pool\n");
             root_LogArray = allocLogArray();
         } 
         else 
         {
-            if ((pop = pmemobj_open(path, POBJ_LAYOUT_NAME(FPtree))) == NULL)
+            if ((pop = pmemobj_open(pool_path_, POBJ_LAYOUT_NAME(FPtree))) == NULL)
                 perror("failed to open pool\n");
             else 
             {
@@ -264,7 +303,11 @@ FPtree::~FPtree()
 
 inline static uint8_t getOneByteHash(uint64_t key)
 {
+#ifdef VAR_KEY
+    uint8_t oneByteHashKey = std::_Hash_bytes((char*)key, key_size_, 1) & 0xff;
+#else
     uint8_t oneByteHashKey = std::_Hash_bytes(&key, sizeof(key), 1) & 0xff;
+#endif
     return oneByteHashKey;
 }
 
@@ -350,8 +393,8 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
 
 inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
 {
-    if (!root)
-	return nullptr;
+	if (!root)
+		return nullptr;
     stack_innerNodes.clear();
     if (!root->isInnerNode) 
     {
@@ -400,8 +443,29 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
     if (decision == Result::Split)
     {
         splitKey = splitLeaf(reachedLeafNode);       // split and link two leaves
+    #ifdef VAR_KEY
+        if (vkcmp((char*)kv.key, (char*)splitKey) >= 0)                      // select one leaf to insert
+            insertNode = reachedLeafNode->p_next;
+    #else
         if (kv.key >= splitKey)                      // select one leaf to insert
             insertNode = reachedLeafNode->p_next;
+    #endif
+        // for (int i = 0; i < MAX_LEAF_SIZE; i++)
+        // {
+        //     if (reachedLeafNode->bitmap.test(i) == 1 &&
+        //         reachedLeafNode->fingerprints[i] != getOneByteHash(reachedLeafNode->kv_pairs[i].key))
+        //     {
+        //         printf("fingerprint messed up in original leaf after split!\n");
+        //     }
+        // }
+        // for (int i = 0; i < MAX_LEAF_SIZE; i++)
+        // {
+        //     if (reachedLeafNode->p_next->bitmap.test(i) == 1 &&
+        //         reachedLeafNode->p_next->fingerprints[i] != getOneByteHash(reachedLeafNode->p_next->kv_pairs[i].key))
+        //     {
+        //         printf("fingerprint messed up in original leaf after split!\n");
+        //     }
+        // }
     }
 
     #ifdef PMEM
@@ -457,9 +521,16 @@ void FPtree::splitLeafAndUpdateInnerParents(LeafNode* reachedLeafNode, Result de
             while(cur->isInnerNode)
             {
                 inners[i] = cur;
+            #ifdef VAR_KEY
+                idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key, 
+                    [](uint64_t a, uint64_t b) { return vkcmp((char*)a, (char*)b) < 0; }) - cur->keys;
+                if (idx < cur->nKey && vkcmp((char*)cur->keys[idx], (char*)kv.key) == 0)
+                    idx++;
+            #else
                 idx = std::lower_bound(cur->keys, cur->keys + cur->nKey, kv.key) - cur->keys;
                 if (idx < cur->nKey && cur->keys[idx] == kv.key) // TODO: this should always be false
                     idx ++;
+            #endif
                 ppos[i++] = idx;
                 cur = reinterpret_cast<InnerNode*> (cur->p_children[idx]);
             }
@@ -690,8 +761,13 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
 
         for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
         {
+        #ifdef VAR_KEY
+            if (vkcmp((char*)D_RO(*dst)->kv_pairs[i].key, (char*)splitKey) < 0)
+                D_RW(*dst)->bitmap.reset(i);
+        #else
             if (D_RO(*dst)->kv_pairs[i].key < splitKey)
                 D_RW(*dst)->bitmap.reset(i);
+        #endif
         }
         // Persist(NewLeaf.Bitmap)
         pmemobj_persist(pop, &D_RO(*dst)->bitmap, sizeof(D_RO(*dst)->bitmap));
@@ -718,8 +794,13 @@ uint64_t FPtree::splitLeaf(LeafNode* leaf)
 
         for (size_t i = 0; i < MAX_LEAF_SIZE; i++)
         {
+        #ifdef VAR_KEY
+            if (vkcmp((char*)newLeafNode->kv_pairs[i].key, (char*)splitKey) < 0)
+                newLeafNode->bitmap.reset(i);
+        #else
             if (newLeafNode->kv_pairs[i].key < splitKey)
                 newLeafNode->bitmap.reset(i);
+        #endif
         }
 
         leaf->bitmap = newLeafNode->bitmap;
@@ -736,10 +817,15 @@ uint64_t FPtree::findSplitKey(LeafNode* leaf)
     KV tempArr[MAX_LEAF_SIZE];
     memcpy(tempArr, leaf->kv_pairs, sizeof(leaf->kv_pairs));
     // TODO: find median in one pass instead of sorting
+#ifdef VAR_KEY
+    std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2){
+            return vkcmp((char*)kv1.key, (char*)kv2.key) < 0;
+        });
+#else
     std::sort(std::begin(tempArr), std::end(tempArr), [] (const KV& kv1, const KV& kv2){
             return kv1.key < kv2.key;
         });
-
+#endif
     uint64_t mid = floor(MAX_LEAF_SIZE / 2);
     uint64_t splitKey = tempArr[mid].key;
 
@@ -1096,57 +1182,57 @@ void FPtree::sortKV()
 }
 
 
-void FPtree::scanInitialize(uint64_t key)
-{
-    if (!root)
-        return;
+// void FPtree::scanInitialize(uint64_t key)
+// {
+//     if (!root)
+//         return;
 
-    this->current_leaf = root->isInnerNode? findLeaf(key) : reinterpret_cast<LeafNode*> (root);
-    while (this->current_leaf != nullptr)
-    {
-        this->sortKV();
-        for (uint64_t i = 0; i < this->size_volatile_kv; i++)
-        {
-            if (this->volatile_current_kv[i].key >= key)
-            {
-                this->bitmap_idx = i;
-                return;
-            }
-        }
-        #ifdef PMEM
-            this->current_leaf = (struct LeafNode *) pmemobj_direct((this->current_leaf->p_next).oid);
-        #else
-            this->current_leaf = this->current_leaf->p_next;
-        #endif
-    }
-}
-
-
-KV FPtree::scanNext()
-{
-    assert(this->current_leaf != nullptr && "Current scan node was deleted!");
-    struct KV kv = this->volatile_current_kv[this->bitmap_idx++];
-    if (this->bitmap_idx == this->size_volatile_kv)
-    {
-        #ifdef PMEM
-            this->current_leaf = (struct LeafNode *) pmemobj_direct((this->current_leaf->p_next).oid);
-        #else
-            this->current_leaf = this->current_leaf->p_next;
-        #endif
-        if (this->current_leaf != nullptr)
-        {
-            this->sortKV();
-            this->bitmap_idx = 0;
-        }
-    }
-    return kv;
-}
+//     this->current_leaf = root->isInnerNode? findLeaf(key) : reinterpret_cast<LeafNode*> (root);
+//     while (this->current_leaf != nullptr)
+//     {
+//         this->sortKV();
+//         for (uint64_t i = 0; i < this->size_volatile_kv; i++)
+//         {
+//             if (this->volatile_current_kv[i].key >= key)
+//             {
+//                 this->bitmap_idx = i;
+//                 return;
+//             }
+//         }
+//         #ifdef PMEM
+//             this->current_leaf = (struct LeafNode *) pmemobj_direct((this->current_leaf->p_next).oid);
+//         #else
+//             this->current_leaf = this->current_leaf->p_next;
+//         #endif
+//     }
+// }
 
 
-bool FPtree::scanComplete()
-{
-    return this->current_leaf == nullptr;
-}
+// KV FPtree::scanNext()
+// {
+//     assert(this->current_leaf != nullptr && "Current scan node was deleted!");
+//     struct KV kv = this->volatile_current_kv[this->bitmap_idx++];
+//     if (this->bitmap_idx == this->size_volatile_kv)
+//     {
+//         #ifdef PMEM
+//             this->current_leaf = (struct LeafNode *) pmemobj_direct((this->current_leaf->p_next).oid);
+//         #else
+//             this->current_leaf = this->current_leaf->p_next;
+//         #endif
+//         if (this->current_leaf != nullptr)
+//         {
+//             this->sortKV();
+//             this->bitmap_idx = 0;
+//         }
+//     }
+//     return kv;
+// }
+
+
+// bool FPtree::scanComplete()
+// {
+//     return this->current_leaf == nullptr;
+// }
 
 
 uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
@@ -1248,86 +1334,5 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
             }
         }
         return true;
-    }
-#endif
-
-
-/*
-    Use case
-    uint64_t tick = rdtsc();
-    Put program between 
-    std::cout << rdtsc() - tick << std::endl;
-*/
-uint64_t rdtsc(){
-    unsigned int lo,hi;
-    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-    return ((uint64_t)hi << 32) | lo;
-}
-
-
-
-#if BUILD_INSPECTOR == 0
-    int main(int argc, char *argv[]) 
-    {
-        srand( (unsigned) time(NULL) * getpid());
-        FPtree fptree;
-
-        #ifdef PMEM
-            const char* command = argv[1];
-            if (command != NULL && strcmp(command, "show") == 0)
-            {  
-                showList();
-                return 0;
-            }
-        #endif
-
-        int64_t key;
-        uint64_t value;
-        while (true)
-        {
-            fptree.printFPTree("├──", fptree.getRoot());
-            std::cout << "\nEnter the key to insert, delete or update (-1): "; 
-            std::cin >> key;
-            std::cout << std::endl;
-            KV kv = KV(key, key);
-            if (key == 0)
-                break;
-            else if (key == -1)
-            {
-                std::cout << "\nEnter the key to update: ";
-                std::cin >> key;
-                std::cout << "\nEnter the value to update: ";
-                std::cin >> value;
-                fptree.update(KV(key, value));
-            }
-            else if (fptree.find(kv.key))
-                fptree.deleteKey(kv.key);
-            else
-            {
-                // fptree.insert(kv);
-                if (!fptree.getRoot())
-                    for (size_t i = 0; i < 100; i++)
-                        fptree.insert(KV(rand() % 100 + 2, 1));
-                else
-                    fptree.insert(kv);
-            }
-            // fptree.printFPTree("├──", fptree.getRoot());
-            #ifdef PMEM
-                std::cout << std::endl;
-                std::cout << "show list: " << std::endl;
-                showList();
-            #endif
-        }
-
-        std::cout << "\nEnter the key to initialize scan: "; 
-        std::cin >> key;
-        std::cout << std::endl;
-        fptree.scanInitialize(key);
-        while(!fptree.scanComplete())
-        {
-            KV kv = fptree.scanNext();
-            std::cout << kv.key << "," << kv.value << " ";
-        }
-        std::cout << std::endl;
     }
 #endif

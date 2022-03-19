@@ -2,8 +2,8 @@
 // Licensed under the MIT license.
 //
 // Authors:
-// George He <georgeh@sfu.ca>
 // Duo Lu <luduol@sfu.ca>
+// George He <georgeh@sfu.ca>
 // Tianzheng Wang <tzwang@sfu.ca>
 
 #pragma once
@@ -16,8 +16,11 @@
 #include <time.h>
 #include <string.h>
 #include <immintrin.h>
-#include <tbb/spin_mutex.h>
-#include <tbb/spin_rw_mutex.h>
+// #include <tbb/spin_mutex.h>
+// #include <tbb/spin_rw_mutex.h>
+#include "oneapi/tbb/spin_mutex.h"
+#include "oneapi/tbb/spin_rw_mutex.h"
+
 #include <iostream>
 #include <string>
 #include <cstdint>
@@ -38,6 +41,10 @@
 #include <cassert>
 #include <thread>
 #include <boost/lockfree/queue.hpp>
+
+extern size_t key_size_;
+extern size_t pool_size_;
+extern const char *pool_path_;
 
 #ifdef TEST_MODE
     #define MAX_INNER_SIZE 3
@@ -62,8 +69,6 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
 #ifdef PMEM
     #include <libpmemobj.h>
 
-    #define PMEMOBJ_POOL_SIZE ((size_t)(1024 * 1024 * 11) * 1000)  /* 11 GB */
-
     POBJ_LAYOUT_BEGIN(FPtree);
     POBJ_LAYOUT_ROOT(FPtree, struct List);
     POBJ_LAYOUT_TOID(FPtree, struct LeafNode);
@@ -72,6 +77,10 @@ enum Result { Insert, Update, Split, Abort, Delete, Remove, NotFound };
     POBJ_LAYOUT_BEGIN(Array);
     POBJ_LAYOUT_TOID(Array, struct Log);
     POBJ_LAYOUT_END(Array);
+
+    POBJ_LAYOUT_BEGIN(Char);
+    POBJ_LAYOUT_TOID(Char, char);
+    POBJ_LAYOUT_END(Char);
 
     inline PMEMobjpool *pop;
 #endif
@@ -380,11 +389,11 @@ struct FPtree
 
     // TODO: fix/optimize iterator based scan methods
     // initialize scan by finding the first kv with kv.key >= key
-    void scanInitialize(uint64_t key);
+    // void scanInitialize(uint64_t key);
 
-    KV scanNext();
+    // KV scanNext();
 
-    bool scanComplete();
+    // bool scanComplete();
 
     uint64_t rangeScan(uint64_t key, uint64_t scan_size, char* result);
 

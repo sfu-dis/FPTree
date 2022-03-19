@@ -27,6 +27,7 @@ private:
     FPtree tree_;
 };
 
+thread_local char k[128];
 
 fptree_wrapper::fptree_wrapper()
 {
@@ -38,13 +39,19 @@ fptree_wrapper::~fptree_wrapper()
 
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
 {
-    // For now only support 8 bytes key and value (uint64_t)
-    uint64_t value = tree_.find(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)));
+#ifdef VAR_KEY
+	memcpy(k, key, key_size_);
+	// k[key_size_] = '\0';
+	uint64_t value = tree_.find((uint64_t)k);
+#else
+	uint64_t value = tree_.find(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)));
+#endif
+    
     if (value == 0)
     {
-#ifdef DEBUG_MSG
-        printf("Search key not found!\n");
-#endif
+	#ifdef DEBUG_MSG
+	    printf("Search key not found!\n");
+	#endif
         return false;
     }
     memcpy(value_out, &value, sizeof(value));
@@ -54,12 +61,30 @@ bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
 
 bool fptree_wrapper::insert(const char* key, size_t key_sz, const char* value, size_t value_sz)
 {
+#ifdef VAR_KEY // key size > 8
+	#ifdef PMEM
+        //TOID(struct char)* dst;
+        PMEMoid dst;
+        pmemobj_zalloc(pop, &dst, key_size_, TOID_TYPE_NUM(char));
+        char* new_k = (char*)pmemobj_direct(dst);
+        memcpy(new_k, key, key_size_);
+        // new_k[key_size_] = '\0';
+        //pmemobj_persist(pop, dst, key_size_);
+        KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+    #else
+		char* new_k = new char[key_size_];
+		memcpy(new_k, key, key_size_);
+		// new_k[key_size_] = '\0';
+		KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+	#endif
+#else
     KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+#endif
     if (!tree_.insert(kv))
     {
-#ifdef DEBUG_MSG
-        printf("Insert failed\n");
-#endif
+	#ifdef DEBUG_MSG
+	    printf("Insert failed\n");
+	#endif
         return false;
     }
     return true;
@@ -67,6 +92,7 @@ bool fptree_wrapper::insert(const char* key, size_t key_sz, const char* value, s
 
 bool fptree_wrapper::update(const char* key, size_t key_sz, const char* value, size_t value_sz)
 {
+	// For now only support 8 bytes key and value (uint64_t)
     KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
     if (!tree_.update(kv))
     {
@@ -80,6 +106,7 @@ bool fptree_wrapper::update(const char* key, size_t key_sz, const char* value, s
 
 bool fptree_wrapper::remove(const char* key, size_t key_sz)
 {
+	// For now only support 8 bytes key and value (uint64_t)
     if (!tree_.deleteKey(*reinterpret_cast<uint64_t*>(const_cast<char*>(key))))
     {
 #ifdef DEBUG_MSG
@@ -92,6 +119,7 @@ bool fptree_wrapper::remove(const char* key, size_t key_sz)
 
 int fptree_wrapper::scan(const char* key, size_t key_sz, int scan_sz, char*& values_out)
 {
+	// For now only support 8 bytes key and value (uint64_t)
     constexpr size_t ONE_MB = 1ULL << 20;
     static thread_local char results[ONE_MB];
     int scanned = tree_.rangeScan(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), (uint64_t)scan_sz, results);
@@ -100,5 +128,4 @@ int fptree_wrapper::scan(const char* key, size_t key_sz, int scan_sz, char*& val
 #endif
     return scanned;
 }
-
 #endif

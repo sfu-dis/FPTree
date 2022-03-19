@@ -6,17 +6,20 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Release)
 
+if(${VAR_KEY})
+    add_definitions(-DVAR_KEY)
+    message(STATUS "VAR_KEY: defined")
+endif()
+
+#if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+#  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O1 -g2 -std=c++17 -lpmem -lpmemobj -mavx512f -mavx512vl -mavx512bw -mavx512dq -mavx512cd -mrtm -pthread")
+#else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -std=c++17 -lpmem -lpmemobj -ljemalloc -mavx512f -mavx512vl -mavx512bw -mavx512dq -mavx512cd -mrtm -pthread")
+#endif()
+
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/src)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/src)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/src)
-
-
-if(${CMAKE_BUILD_TYPE} STREQUAL "Release")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -std=c++17 -lpmem -lpmemobj -ljemalloc -mavx512f -mavx512vl -mavx512bw -mavx512dq -mavx512cd -mrtm -ltbb -pthread")
-else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O1 -g2 -std=c++17 -lpmem -lpmemobj -mavx512f -mavx512vl -mavx512bw -mavx512dq -mavx512cd -mrtm -ltbb -pthread")
-endif()
-
 
 set(PMEM_BACKEND "PMEM" CACHE STRING "Persistent memory backend type")
 
@@ -28,8 +31,6 @@ elseif(${PMEM_BACKEND} STREQUAL "DRAM")
 else()
   message(FATAL_ERROR "Unsupported persistent memory backend: ${PMEM_BACKEND}")
 endif()
-
-option(BUILD_INSPECTOR "Build inspector to check correctness of single/multi-thread operation" ON)
 
 option(TEST_MODE "Test mode will test leaf nodes and inner node smaller to help debug" ON)
 
@@ -43,37 +44,30 @@ else()
   message(STATUS "TEST_MODE: not defined")
 endif()
 
-
-if(${BUILD_INSPECTOR})
-  add_definitions(-DBUILD_INSPECTOR)
-  message(STATUS "BUILD_INSPECTOR: defined")
-  add_executable(
-    inspector
-    fptree.cpp
-    fptree.h
-    inspector.cpp
-  )
+if(${NDEBUG})
+  add_definitions(-DNDEBUG)
+  message(STATUS "NDEBUG: defined")
 else()
-  message(STATUS "BUILD_INSPECTOR: not defined")
-  add_executable(
-    fptree
-    fptree.cpp
-    fptree.h
-  )
+  message(STATUS "NDEBUG: not defined")
 endif()
+
 
 ##################### PiBench #########################
 FetchContent_Declare(
-        pibench 
+        pibench
         GIT_REPOSITORY https://github.com/sfu-dis/pibench.git
-        GIT_TAG master 
+        GIT_TAG master
 )
 if (NOT pibench_POPULATED)
   FetchContent_Populate(pibench)
   include_directories(${pibench_SOURCE_DIR}/include)
 endif ()
 
+link_directories(oneTBB/build/gnu_11.1_cxx11_64_release)
+include_directories(oneTBB/include)
+
 
 add_library(fptree_pibench_wrapper SHARED fptree_wrapper.cpp
-						fptree.cpp)
+                                                fptree.cpp)
 
+target_link_libraries(fptree_pibench_wrapper libtbb.so)
