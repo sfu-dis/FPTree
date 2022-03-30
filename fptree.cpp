@@ -1247,6 +1247,9 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
         lock_scan.acquire(speculative_lock, false);
         if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
         if (!leaf->Lock()) { lock_scan.release(); continue; }
+        #ifdef PREFETCH
+            LEAF_PREF(leaf);
+        #endif
         for (i = 0; i < MAX_LEAF_SIZE; i++)
             if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
                 records.push_back(leaf->kv_pairs[i]);
@@ -1259,6 +1262,9 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
             #else
                 if ((next_leaf = leaf->p_next) == nullptr)
                     break;
+            #endif
+            #ifdef PREFETCH
+                LEAF_PREF(next_leaf);
             #endif
             while (!next_leaf->Lock())
                 std::this_thread::sleep_for(std::chrono::nanoseconds(1));

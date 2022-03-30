@@ -41,6 +41,7 @@
 #include <cassert>
 #include <thread>
 #include <boost/lockfree/queue.hpp>
+#include "nodepref.h"
 
 extern size_t key_size_;
 extern size_t pool_size_;
@@ -60,6 +61,10 @@ extern const char *pool_path_;
 
 #if MAX_LEAF_SIZE > 64
     #error "Number of kv pairs in LeafNode must be <= 64."
+#endif
+
+#ifdef PREFETCH
+    #define LEAF_LINE_NUM sizeof(LeafNode)/64
 #endif
 
 static const uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
