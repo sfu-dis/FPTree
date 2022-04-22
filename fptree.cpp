@@ -43,7 +43,7 @@ int vkcmp(char* a, char* b) {
     ((uint16_t*)&a)[3] = 0;
     uint16_t b_len = ((uint16_t*)&b)[3];
     ((uint16_t*)&b)[3] = 0;
-    auto res = memcmp(a, b, min(a_len, b_len));
+    auto res = memcmp(a, b, std::min(a_len, b_len));
     if (res != 0)
         return res;
     return a_len < b_len;
