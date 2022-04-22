@@ -40,9 +40,14 @@ fptree_wrapper::~fptree_wrapper()
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
 {
 #ifdef VAR_KEY
-	memcpy(k, key, key_size_);
-	// k[key_size_] = '\0';
-	uint64_t value = tree_.find((uint64_t)k);
+    #ifdef ACT_KEYLEN
+        char* k = const_cast<char*>(key);
+        ((uint16_t*)&k)[3] = (uint16_t)key_sz; // embed 2-byte key length into key ptr
+        uint64_t value = tree_.find((uint64_t)k); 
+    #else
+        memcpy(k, key, key_size_);
+        uint64_t value = tree_.find((uint64_t)k);
+    #endif
 #else
 	uint64_t value = tree_.find(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)));
 #endif
@@ -62,21 +67,37 @@ bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)
 bool fptree_wrapper::insert(const char* key, size_t key_sz, const char* value, size_t value_sz)
 {
 #ifdef VAR_KEY // key size > 8
-	#ifdef PMEM
-        //TOID(struct char)* dst;
-        PMEMoid dst;
-        pmemobj_zalloc(pop, &dst, key_size_, TOID_TYPE_NUM(char));
-        char* new_k = (char*)pmemobj_direct(dst);
-        memcpy(new_k, key, key_size_);
-        // new_k[key_size_] = '\0';
-        //pmemobj_persist(pop, dst, key_size_);
-        KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+    #ifdef ACT_KEYLEN
+        #ifdef PMEM
+            PMEMoid dst;
+            pmemobj_zalloc(pop, &dst, key_sz, TOID_TYPE_NUM(char));
+            char* new_k = (char*)pmemobj_direct(dst);
+            memcpy(new_k, key, key_sz);
+            ((uint16_t*)&new_k)[3] = (uint16_t)key_sz; // embed 2-byte key length into key ptr
+            KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+        #else
+            char* new_k = new char[key_sz];
+            memcpy(new_k, key, key_sz);
+            ((uint16_t*)&new_k)[3] = (uint16_t)key_sz; // embed 2-byte key length into key ptr
+            KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+        #endif
     #else
-		char* new_k = new char[key_size_];
-		memcpy(new_k, key, key_size_);
-		// new_k[key_size_] = '\0';
-		KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
-	#endif
+        #ifdef PMEM
+            //TOID(struct char)* dst;
+            PMEMoid dst;
+            pmemobj_zalloc(pop, &dst, key_size_, TOID_TYPE_NUM(char));
+            char* new_k = (char*)pmemobj_direct(dst);
+            memcpy(new_k, key, key_size_);
+            // new_k[key_size_] = '\0';
+            //pmemobj_persist(pop, dst, key_size_);
+            KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+        #else
+            char* new_k = new char[key_size_];
+            memcpy(new_k, key, key_size_);
+            // new_k[key_size_] = '\0';
+            KV kv = KV((uint64_t)new_k, *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
+        #endif
+    #endif
 #else
     KV kv = KV(*reinterpret_cast<uint64_t*>(const_cast<char*>(key)), *reinterpret_cast<uint64_t*>(const_cast<char*>(value)));
 #endif

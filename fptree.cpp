@@ -38,7 +38,18 @@ int vkcmp(char* a, char* b) {
             a++,b++;
     return 0;
 */
+#ifdef ACT_KEYLEN
+    uint16_t a_len = ((uint16_t*)&a)[3];
+    ((uint16_t*)&a)[3] = 0;
+    uint16_t b_len = ((uint16_t*)&b)[3];
+    ((uint16_t*)&b)[3] = 0;
+    auto res = memcmp(a, b, min(a_len, b_len));
+    if (res != 0)
+        return res;
+    return a_len < b_len;
+#else
     return memcmp(a, b, key_size_);
+#endif
 }
 #endif
 

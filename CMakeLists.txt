@@ -11,6 +11,11 @@ if(${VAR_KEY})
     message(STATUS "VAR_KEY: defined")
 endif()
 
+if(${ACT_KEYLEN})
+    add_definitions(-DACT_KEYLEN)
+    message(STATUS "ACT_KEYLEN: defined")
+endif()
+
 #if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
 #  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O1 -g2 -std=c++17 -lpmem -lpmemobj -mavx512f -mavx512vl -mavx512bw -mavx512dq -mavx512cd -mrtm -pthread")
 #else()
