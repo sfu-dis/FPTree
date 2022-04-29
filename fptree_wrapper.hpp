@@ -29,12 +29,22 @@ private:
 
 thread_local char k[128];
 
+#ifdef PROFILE
+    thread_local uint64_t vkcmp_time;
+#endif
+
 fptree_wrapper::fptree_wrapper()
 {
+#ifdef PROFILE
+    vkcmp_time = 0;
+#endif
 }
 
 fptree_wrapper::~fptree_wrapper()
 {
+#ifdef PROFILE
+    printf("vkcmp time per thread: %llu\n", vkcmp_time);
+#endif
 }
 
 bool fptree_wrapper::find(const char* key, size_t key_sz, char* value_out)

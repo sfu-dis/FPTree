@@ -15,6 +15,10 @@
     }
 #endif
 
+#ifdef PROFILE
+    extern thread_local uint64_t vkcmp_time;
+#endif
+
 /*
     Use case
     uint64_t tick = rdtsc();
@@ -38,17 +42,25 @@ int vkcmp(char* a, char* b) {
             a++,b++;
     return 0;
 */
+#ifdef PROFILE
+auto start = rdtsc();
+#endif
 #ifdef ACT_KEYLEN
     uint16_t a_len = ((uint16_t*)&a)[3];
     ((uint16_t*)&a)[3] = 0;
     uint16_t b_len = ((uint16_t*)&b)[3];
     ((uint16_t*)&b)[3] = 0;
     auto res = memcmp(a, b, std::min(a_len, b_len));
-    if (res != 0)
-        return res;
-    return a_len < b_len;
+    #ifdef PROFILE
+        vkcmp_time += (rdtsc() - start);
+    #endif
+    return res != 0? res : a_len < b_len;
 #else
-    return memcmp(a, b, key_size_);
+    auto res = memcmp(a, b, key_size_);
+    #ifdef PROFILE
+        vkcmp_time += (rdtsc() - start);
+    #endif
+    return res;
 #endif
 }
 #endif
