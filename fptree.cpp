@@ -402,6 +402,30 @@ void FPtree::printFPTree(std::string prefix, BaseNode* root)
 
 inline LeafNode* FPtree::findLeaf(uint64_t key) 
 {
+#ifdef PREFETCH
+    if (!root)
+        return nullptr;
+    if (!root->isInnerNode) {
+        LEAF_PREF(root);
+        return reinterpret_cast<LeafNode*> (root);
+    }
+    InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
+    BaseNode* next = nullptr
+    int i = 0;
+    while (true)
+    {
+        i = cursor->findChildIndex(key);
+        next = cursor->p_children[i];
+        if (!next->isInnerNode)
+            break;
+        cursor = reinterpret_cast<InnerNode*> (next);
+    }
+    LEAF_PREF(next);
+    auto n = std::min(i + NUM_LEAVES_TO_PREF, cursor->nKey);
+    for (i + 1; i <= n; i++)
+        LEAF_PREF(cursor->p_children[i]);
+    return reinterpret_cast<LeafNode*> (next);
+#else
     if (!root)
         return nullptr;
     if (!root->isInnerNode) 
@@ -412,6 +436,7 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
         cursor = reinterpret_cast<InnerNode*> (cursor->p_children[cursor->findChildIndex(key)]);
     }
     return reinterpret_cast<LeafNode*> (cursor);
+#endif
 }
 
 inline LeafNode* FPtree::findLeafAndPushInnerNodes(uint64_t key)
@@ -1270,9 +1295,9 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
         lock_scan.acquire(speculative_lock, false);
         if ((leaf = findLeaf(key)) == nullptr) { lock_scan.release(); return 0; }
         if (!leaf->Lock()) { lock_scan.release(); continue; }
-        #ifdef PREFETCH
-            LEAF_PREF(leaf);
-        #endif
+        // #ifdef PREFETCH
+        //     LEAF_PREF(leaf);
+        // #endif
         for (i = 0; i < MAX_LEAF_SIZE; i++)
             if (leaf->bitmap.test(i) && leaf->kv_pairs[i].key >= key)
                 records.push_back(leaf->kv_pairs[i]);
@@ -1286,9 +1311,9 @@ uint64_t FPtree::rangeScan(uint64_t key, uint64_t scan_size, char* result)
                 if ((next_leaf = leaf->p_next) == nullptr)
                     break;
             #endif
-            #ifdef PREFETCH
-                LEAF_PREF(next_leaf);
-            #endif
+            // #ifdef PREFETCH
+            //     LEAF_PREF(next_leaf);
+            // #endif
             while (!next_leaf->Lock())
                 std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             leaf->Unlock();

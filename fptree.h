@@ -65,6 +65,7 @@ extern const char *pool_path_;
 
 #ifdef PREFETCH
     #define LEAF_LINE_NUM sizeof(LeafNode)/64
+    #define NUM_LEAVES_TO_PREF 1000/MAX_LEAF_SIZE // assume scan_size 1000
 #endif
 
 static const uint64_t offset = std::numeric_limits<uint64_t>::max() >> (64 - MAX_LEAF_SIZE);
