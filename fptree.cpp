@@ -410,7 +410,7 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
         return reinterpret_cast<LeafNode*> (root);
     }
     InnerNode* cursor = reinterpret_cast<InnerNode*> (root);
-    BaseNode* next = nullptr
+    BaseNode* next = nullptr;
     int i = 0;
     while (true)
     {
@@ -421,7 +421,7 @@ inline LeafNode* FPtree::findLeaf(uint64_t key)
         cursor = reinterpret_cast<InnerNode*> (next);
     }
     LEAF_PREF(next);
-    auto n = std::min(i + NUM_LEAVES_TO_PREF, cursor->nKey);
+    auto n = std::min(i + NUM_LEAVES_TO_PREF, (int)cursor->nKey);
     for (i + 1; i <= n; i++)
         LEAF_PREF(cursor->p_children[i]);
     return reinterpret_cast<LeafNode*> (next);
